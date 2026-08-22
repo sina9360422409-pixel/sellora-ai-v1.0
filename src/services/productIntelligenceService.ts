@@ -5,7 +5,8 @@ import {
   FactStatus,
   IntelligenceSourceType,
   IntelligenceConfidence,
-  UniversalProductProfile,
+  UniversalProductIntelligenceProfile,
+  NormalizedFact,
   FactItem,
   ResearchSource
 } from '../types';
@@ -19,10 +20,92 @@ export interface AnalysisResponse {
   diagnostic?: string;
 }
 
+// In-memory cache for intelligence profiles
+const intelligenceCache = new Map<string, { intelligence: ProductIntelligence; timestamp: number }>();
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function getCacheKey(product: Product): string {
+  return `${product.id || 'unassigned'}-${product.name}-${product.price}-${product.category}`;
+}
+
 /**
-  Creates a clean fallback UniversalProductProfile and ProductIntelligence object derived purely from user-provided facts.
-  Ensures that if the AI endpoint is unavailable or returns an error, the application never crashes
-  and existing product data remains undamaged.
+ * Filter and extract only verified, observed, and user-provided facts for downstream generation.
+ * STRICTLY blocks UNKNOWN, POTENTIAL, and ungrounded inferences.
+ */
+export function getSupportedProductFacts(
+  profileOrIntelligence: UniversalProductIntelligenceProfile | ProductIntelligence
+): NormalizedFact[] {
+  const supported: NormalizedFact[] = [];
+
+  const profile: UniversalProductIntelligenceProfile | undefined =
+    'productIdentity' in profileOrIntelligence
+      ? (profileOrIntelligence as UniversalProductIntelligenceProfile)
+      : (profileOrIntelligence as ProductIntelligence).universalProfile;
+
+  if (!profile) {
+    return supported;
+  }
+
+  // 1. User-Provided Facts (Preserved verbatim and allowed)
+  if (Array.isArray(profile.userProvidedFacts)) {
+    profile.userProvidedFacts.forEach((fact) => {
+      if (fact && fact.value && fact.value !== 'Not verified' && fact.sourceType === 'USER_PROVIDED') {
+        supported.push({
+          name: fact.name,
+          value: fact.value,
+          sourceType: 'USER_PROVIDED',
+          confidence: fact.confidence || 'HIGH',
+          evidence: fact.evidence
+        });
+      }
+    });
+  }
+
+  // 2. Observed Facts from Image (Direct visual match allowed)
+  if (Array.isArray(profile.observedFacts)) {
+    profile.observedFacts.forEach((fact) => {
+      if (fact && fact.value && fact.value !== 'Not verified' && fact.sourceType === 'OBSERVED') {
+        supported.push({
+          name: fact.name,
+          value: fact.value,
+          sourceType: 'OBSERVED',
+          confidence: fact.confidence || 'HIGH',
+          evidence: fact.evidence
+        });
+      }
+    });
+  }
+
+  // 3. Verified Facts (Grounding confirmed with reliable source)
+  if (Array.isArray(profile.verifiedFacts)) {
+    profile.verifiedFacts.forEach((fact) => {
+      if (
+        fact &&
+        fact.value &&
+        fact.value !== 'Not verified' &&
+        fact.sourceType === 'VERIFIED' &&
+        fact.source &&
+        (fact.source.url || fact.source.title)
+      ) {
+        supported.push({
+          name: fact.name,
+          value: fact.value,
+          sourceType: 'VERIFIED',
+          confidence: fact.confidence || 'HIGH',
+          source: fact.source,
+          evidence: fact.evidence
+        });
+      }
+    });
+  }
+
+  return supported;
+}
+
+/**
+ * Creates a clean fallback UniversalProductIntelligenceProfile and ProductIntelligence derived purely from user-provided facts.
+ * Ensures that if the AI endpoint is unavailable or returns an error, the application never crashes
+ * and existing product data remains undamaged.
  */
 export function createFallbackProductIntelligence(
   product: Product,
@@ -43,96 +126,110 @@ export function createFallbackProductIntelligence(
       }))
     : [];
 
-  const userFactItems: FactItem[] = [
+  const userProvidedFacts: NormalizedFact[] = [
     {
-      attributeName: 'Product Name',
+      name: 'Product Name',
       value: product.name || 'Unspecified Product',
-      source: 'USER_PROVIDED',
-      status: 'VERIFIED',
-      confidence: 1.0
+      sourceType: 'USER_PROVIDED',
+      confidence: 'HIGH',
+      evidence: 'Explicitly entered by user'
     },
     {
-      attributeName: 'Category',
+      name: 'Category',
       value: product.category || 'General',
-      source: 'USER_PROVIDED',
-      status: 'VERIFIED',
-      confidence: 1.0
+      sourceType: 'USER_PROVIDED',
+      confidence: 'HIGH',
+      evidence: 'Explicitly selected by user'
     },
     {
-      attributeName: 'Price',
+      name: 'Price',
       value: formattedPrice,
-      source: 'USER_PROVIDED',
-      status: 'VERIFIED',
-      confidence: 1.0
+      sourceType: 'USER_PROVIDED',
+      confidence: 'HIGH',
+      evidence: 'Explicitly set by user'
     }
   ];
 
   if (product.description) {
-    userFactItems.push({
-      attributeName: 'Description',
+    userProvidedFacts.push({
+      name: 'Description',
       value: product.description,
-      source: 'USER_PROVIDED',
-      status: 'VERIFIED',
-      confidence: 1.0
+      sourceType: 'USER_PROVIDED',
+      confidence: 'HIGH',
+      evidence: 'Explicitly written by user'
     });
   }
 
   if (Array.isArray(product.features)) {
     product.features.forEach((f, idx) => {
-      userFactItems.push({
-        attributeName: `Feature ${idx + 1}`,
+      userProvidedFacts.push({
+        name: `Feature ${idx + 1}`,
         value: String(f),
-        source: 'USER_PROVIDED',
-        status: 'VERIFIED',
-        confidence: 1.0
+        sourceType: 'USER_PROVIDED',
+        confidence: 'HIGH',
+        evidence: 'Explicitly listed by user'
       });
     });
   }
 
   const defaultUnknowns = [
-    { name: 'Warranty Terms', reason: 'No warranty details provided by seller' },
-    { name: 'Shipping Timeline', reason: 'Shipping terms not specified' },
+    { name: 'Warranty Terms', reason: 'No warranty details provided by seller or verified' },
+    { name: 'Shipping Timeline & Policy', reason: 'Shipping terms not specified' },
     { name: 'Return Policy', reason: 'Return terms not specified' },
-    { name: 'Exact Technical Dimensions & Weight', reason: 'Technical dimensions not provided' }
+    { name: 'Drop Protection & Lab Ratings', reason: 'No certified lab testing verified' }
   ];
 
-  const universalProfile: UniversalProductProfile = {
-    id: 'profile-' + Date.now(),
-    productId: product.id || 'unknown',
-    lastUpdated: new Date().toISOString(),
-    identity: {
-      name: product.name || 'Unspecified Product',
-      brand: 'Generic / Seller Provided',
-      model: 'Standard',
-      category: product.category || 'General',
-      subcategory: product.category || 'General',
-      productType: product.category || 'Physical Product'
-    },
-    attributes: {
+  const universalProfile: UniversalProductIntelligenceProfile = {
+    productIdentity: {
+      brand: {
+        name: 'Brand',
+        value: 'Generic / Seller Provided',
+        sourceType: 'USER_PROVIDED',
+        confidence: 'HIGH',
+        status: 'CONFIRMED'
+      },
+      productName: {
+        name: 'Product Name',
+        value: product.name || 'Unspecified Product',
+        sourceType: 'USER_PROVIDED',
+        confidence: 'HIGH'
+      },
+      productType: {
+        name: 'Product Type',
+        value: product.category || 'Physical Product',
+        sourceType: 'USER_PROVIDED',
+        confidence: 'HIGH'
+      },
+      model: {
+        name: 'Model',
+        value: 'UNKNOWN',
+        sourceType: 'UNKNOWN',
+        confidence: 'NOT_APPLICABLE'
+      },
       category: {
-        attributeName: 'Category',
+        name: 'Category',
         value: product.category || 'General',
-        source: 'USER_PROVIDED',
-        status: 'VERIFIED',
-        confidence: 1.0
+        sourceType: 'USER_PROVIDED',
+        confidence: 'HIGH'
       }
     },
-    userProvidedFacts: userFactItems,
-    visualFacts: [],
+    userProvidedFacts,
+    observedFacts: [],
     researchedFacts: [],
-    unknownFacts: defaultUnknowns,
-    conflicts: [],
-    pricing: {
-      amount: typeof product.price === 'number' ? product.price : 0,
-      currency: product.currency || '$',
-      formatted: formattedPrice,
-      source: 'USER_PROVIDED'
-    },
-    variants: [],
+    verifiedFacts: [],
+    unknownFacts: defaultUnknowns.map((u) => ({
+      name: u.name,
+      value: 'Not verified',
+      sourceType: 'UNKNOWN',
+      confidence: 'NOT_APPLICABLE',
+      reason: u.reason
+    })),
+    potentialFacts: [],
     sources: [],
-    productKeywords: Array.isArray(product.tags) ? product.tags : [product.category || 'ecommerce'],
-    targetAudience: product.targetAudience ? [product.targetAudience] : ['General Buyers'],
-    overallConfidenceScore: 80,
+    conflicts: [],
+    researchWarnings: [],
+    researchStatus: 'NO_RELIABLE_SOURCE',
+    overallScore: 82,
     summaryNotes: note
   };
 
@@ -148,6 +245,12 @@ export function createFallbackProductIntelligence(
     },
     category: {
       value: product.category || 'General',
+      status: 'VERIFIED',
+      sourceType: 'USER_PROVIDED',
+      confidence: 'HIGH'
+    },
+    brand: {
+      value: 'Generic / Seller Provided',
       status: 'VERIFIED',
       sourceType: 'USER_PROVIDED',
       confidence: 'HIGH'
@@ -180,21 +283,36 @@ export function createFallbackProductIntelligence(
       : [],
     unknownInformation: defaultUnknowns,
     productKeywords: Array.isArray(product.tags) ? product.tags : [product.category || 'ecommerce'],
-    verificationScore: 80,
+    verificationScore: 82,
     summaryNotes: note,
+    researchStatus: 'NO_RELIABLE_SOURCE',
     universalProfile
   };
 }
 
 export const productIntelligenceService = {
   /**
-    Analyzes product details, image, and optional web research using server-side Gemini Universal Product Intelligence Engine.
-    Returns a structured ProductIntelligence object containing the Universal Product Profile.
+   * Analyzes product details, image, and optional web research using server-side Gemini Universal Product Intelligence Engine.
+   * Returns a structured ProductIntelligence object containing the Universal Product Profile.
    */
   async analyzeProductIntelligence(
     product: Product,
-    options?: { enableResearch?: boolean }
+    options?: { enableResearch?: boolean; forceRefresh?: boolean }
   ): Promise<AnalysisResponse> {
+    const cacheKey = getCacheKey(product);
+
+    if (!options?.forceRefresh) {
+      const cached = intelligenceCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+        return {
+          success: true,
+          intelligence: cached.intelligence,
+          isRealAi: true,
+          message: 'Retrieved from cached Product Intelligence profile'
+        };
+      }
+    }
+
     const productDto = toSerializableProductDto(product);
 
     try {
@@ -210,6 +328,11 @@ export const productIntelligenceService = {
       const data = await response.json();
 
       if (response.ok && data.success && data.intelligence) {
+        intelligenceCache.set(cacheKey, {
+          intelligence: data.intelligence,
+          timestamp: Date.now()
+        });
+
         return {
           success: true,
           intelligence: data.intelligence,
@@ -218,9 +341,10 @@ export const productIntelligenceService = {
         };
       } else {
         console.warn('[Sellora Intelligence] Server returned non-ok response, using fallback:', data?.message);
+        const fallback = createFallbackProductIntelligence(product, data?.message || 'Fallback product structure');
         return {
           success: false,
-          intelligence: createFallbackProductIntelligence(product, data?.message || 'Fallback product structure'),
+          intelligence: fallback,
           isRealAi: false,
           message: data?.message || 'Product Intelligence currently operating on user-provided facts.',
           diagnostic: data?.diagnostic
@@ -228,9 +352,10 @@ export const productIntelligenceService = {
       }
     } catch (err: any) {
       console.error('[Sellora Intelligence] Network error during product analysis:', err);
+      const fallback = createFallbackProductIntelligence(product, 'Local verification fallback');
       return {
         success: false,
-        intelligence: createFallbackProductIntelligence(product, 'Local verification fallback'),
+        intelligence: fallback,
         isRealAi: false,
         message: 'Unable to connect to Product Intelligence server.',
         diagnostic: err?.message

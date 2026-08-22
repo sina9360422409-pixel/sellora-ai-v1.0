@@ -3,8 +3,10 @@ export type ProductStatus = 'Ready' | 'Needs improvement' | 'Draft' | 'Published
 export type SourceType = 'USER_PROVIDED' | 'OBSERVED' | 'VERIFIED' | 'UNKNOWN';
 export type ConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW' | 'NOT_APPLICABLE';
 
-export interface FactItem {
-  fact: string;
+export interface LegacyFactItem {
+  fact?: string;
+  name?: string;
+  value?: string;
   sourceType: SourceType;
   confidence: ConfidenceLevel;
 }
@@ -74,9 +76,9 @@ export interface DetailedAnalysisData {
   category: { value: string; sourceType: SourceType; confidence: ConfidenceLevel };
   overallScore: number;
   readinessLevel: 'High' | 'Moderate' | 'Needs Attention';
-  observedFeatures: FactItem[];
-  userProvidedFacts: FactItem[];
-  verifiedFacts: FactItem[];
+  observedFeatures: LegacyFactItem[];
+  userProvidedFacts: LegacyFactItem[];
+  verifiedFacts: LegacyFactItem[];
   unknownFacts: UnknownFactItem[];
   sellingPoints: SellingPointItem[];
   targetAudience: string[];
@@ -87,95 +89,82 @@ export interface DetailedAnalysisData {
 }
 
 // ==================================================
-// PRODUCT INTELLIGENCE ENGINE MODEL
+// PRODUCT INTELLIGENCE RESEARCH ENGINE MODEL (PHASE 1)
 // ==================================================
 
-export type FactSourceCategory =
-  | 'USER_PROVIDED'
-  | 'IMAGE_OBSERVED'
-  | 'RESEARCH_FOUND'
-  | 'INFERRED'
-  | 'UNKNOWN'
-  | 'CONFLICTING';
+export type CanonicalSourceType = 'OBSERVED' | 'USER_PROVIDED' | 'VERIFIED' | 'UNKNOWN';
+export type FactConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'NOT_APPLICABLE';
+export type ResearchStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'PARTIAL' | 'FAILED' | 'NO_RELIABLE_SOURCE';
 
-export type FactVerificationStatus =
-  | 'VERIFIED'
-  | 'POTENTIAL'
-  | 'UNSUPPORTED'
-  | 'UNKNOWN'
-  | 'CONFLICTING';
-
-export interface FactItem {
-  id?: string;
-  attributeName: string; // e.g., "CPU", "Sole Type", "Fragrance Notes", "Compatible Model", "Material", "Color"
-  value: string;
-  source: FactSourceCategory;
-  status: FactVerificationStatus;
-  confidence: number; // 0.0 to 1.0
-  sourceUrl?: string;
-  sourceName?: string;
-  evidence?: string;
-  competingValues?: string[]; // If status === 'CONFLICTING'
-}
-
-export interface ResearchSource {
-  id: string;
+export interface FactSourceRef {
   title: string;
   url: string;
-  domain: string;
-  snippet?: string;
-  reliabilityScore: number; // 0 to 100
-  retrievedAt: string;
+  publisher?: string;
+  domain?: string;
+  reliabilityScore?: number;
 }
 
-export interface UniversalProductProfile {
-  id: string;
-  productId: string;
-  lastUpdated: string;
-
-  identity: {
-    name: string;
-    brand: string;
-    model: string;
-    category: string;
-    subcategory: string;
-    productType: string;
-  };
-
-  // Dynamic Category Attributes (Works for Laptops, Shoes, Perfumes, Phone Cases, Cars, etc.)
-  attributes: Record<string, FactItem>;
-
-  // Categorized Fact lists
-  userProvidedFacts: FactItem[];
-  visualFacts: FactItem[];
-  researchedFacts: FactItem[];
-  unknownFacts: Array<{ name: string; reason: string }>;
-  conflicts: FactItem[];
-
-  // Pricing & Variants
-  pricing: {
-    amount: number;
-    currency: string;
-    formatted: string;
-    source: FactSourceCategory;
-  };
-  variants: string[];
-
-  // Research Sources
-  sources: ResearchSource[];
-
-  // Keywords & Target Audience
-  productKeywords: string[];
-  targetAudience: string[];
-
-  // Overall Health / Confidence Score (0 - 100)
-  overallConfidenceScore: number;
-  summaryNotes: string;
+export interface NormalizedFact {
+  name: string;
+  value: string;
+  sourceType: CanonicalSourceType;
+  confidence: FactConfidence;
+  source?: FactSourceRef | null;
+  evidence?: string;
+  reason?: string;
 }
 
+export interface ProductIdentityItem extends NormalizedFact {
+  possibleIdentification?: string;
+  status?: 'CONFIRMED' | 'REQUIRES_CONFIRMATION' | 'UNVERIFIED';
+}
+
+export interface ProductFactConflict {
+  field: string;
+  userValue: string;
+  researchedValue: string;
+  description: string;
+  source?: FactSourceRef | null;
+}
+
+export interface PotentialFact {
+  name: string;
+  value: string;
+  status: 'POTENTIAL';
+  reason: string;
+}
+
+export interface UniversalProductIntelligenceProfile {
+  productIdentity: {
+    brand: ProductIdentityItem;
+    productName: ProductIdentityItem;
+    productType: ProductIdentityItem;
+    model: ProductIdentityItem;
+    category: ProductIdentityItem;
+  };
+  userProvidedFacts: NormalizedFact[];
+  observedFacts: NormalizedFact[];
+  researchedFacts: NormalizedFact[];
+  verifiedFacts: NormalizedFact[];
+  unknownFacts: NormalizedFact[];
+  potentialFacts: PotentialFact[];
+  sources: FactSourceRef[];
+  conflicts: ProductFactConflict[];
+  researchWarnings: string[];
+  researchStatus: ResearchStatus;
+  overallScore?: number;
+  summaryNotes?: string;
+}
+
+// Backward-compatible aliases
+export type FactSourceCategory = CanonicalSourceType;
+export type FactVerificationStatus = 'VERIFIED' | 'POTENTIAL' | 'UNSUPPORTED' | 'UNKNOWN' | 'CONFLICTING';
+export type FactItem = NormalizedFact & { attributeName?: string; status?: FactVerificationStatus };
+export type ResearchSource = FactSourceRef & { id?: string; snippet?: string; retrievedAt?: string };
+export type UniversalProductProfile = UniversalProductIntelligenceProfile;
 export type FactStatus = FactVerificationStatus;
-export type IntelligenceSourceType = 'USER_PROVIDED' | 'AI_DETECTED' | 'AI_INFERRED' | 'RESEARCH_VERIFIED';
-export type IntelligenceConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'NOT_APPLICABLE';
+export type IntelligenceSourceType = CanonicalSourceType | 'AI_DETECTED' | 'AI_INFERRED' | 'RESEARCH_VERIFIED';
+export type IntelligenceConfidence = FactConfidence;
 
 export interface ProductIntelligenceFact {
   name?: string;
@@ -191,6 +180,9 @@ export interface ProductIntelligence {
   id: string;
   productId: string;
   lastAnalyzedAt: string;
+
+  // Canonical Universal Profile
+  universalProfile?: UniversalProductIntelligenceProfile;
 
   // Core Identifiers & Categorization
   productName: ProductIntelligenceFact;
@@ -240,9 +232,7 @@ export interface ProductIntelligence {
   // Health & Readiness Summary
   verificationScore: number; // 0-100 score
   summaryNotes: string;
-
-  // Embedded Universal Profile
-  universalProfile?: UniversalProductProfile;
+  researchStatus?: ResearchStatus;
 }
 
 export interface Product {

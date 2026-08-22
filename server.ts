@@ -166,181 +166,197 @@ const analysisResponseSchema = {
 };
 
 // ==================================================
-// PRODUCT INTELLIGENCE ENGINE SCHEMA & SANITIZER
+// PRODUCT INTELLIGENCE RESEARCH ENGINE SCHEMA & SANITIZER (PHASE 1)
 // ==================================================
 
 const productIntelligenceResponseSchema = {
   type: Type.OBJECT,
   properties: {
-    productName: {
+    productIdentity: {
       type: Type.OBJECT,
       properties: {
-        value: { type: Type.STRING },
-        status: { type: Type.STRING },
-        sourceType: { type: Type.STRING },
-        confidence: { type: Type.STRING }
+        brand: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            value: { type: Type.STRING },
+            sourceType: { type: Type.STRING },
+            confidence: { type: Type.STRING },
+            possibleIdentification: { type: Type.STRING },
+            status: { type: Type.STRING }
+          },
+          required: ['name', 'value', 'sourceType', 'confidence']
+        },
+        productName: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            value: { type: Type.STRING },
+            sourceType: { type: Type.STRING },
+            confidence: { type: Type.STRING },
+            possibleIdentification: { type: Type.STRING }
+          },
+          required: ['name', 'value', 'sourceType', 'confidence']
+        },
+        productType: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            value: { type: Type.STRING },
+            sourceType: { type: Type.STRING },
+            confidence: { type: Type.STRING }
+          },
+          required: ['name', 'value', 'sourceType', 'confidence']
+        },
+        model: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            value: { type: Type.STRING },
+            sourceType: { type: Type.STRING },
+            confidence: { type: Type.STRING }
+          },
+          required: ['name', 'value', 'sourceType', 'confidence']
+        },
+        category: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            value: { type: Type.STRING },
+            sourceType: { type: Type.STRING },
+            confidence: { type: Type.STRING }
+          },
+          required: ['name', 'value', 'sourceType', 'confidence']
+        }
       },
-      required: ['value', 'status', 'sourceType', 'confidence']
+      required: ['brand', 'productName', 'productType', 'model', 'category']
     },
-    category: {
-      type: Type.OBJECT,
-      properties: {
-        value: { type: Type.STRING },
-        status: { type: Type.STRING },
-        sourceType: { type: Type.STRING },
-        confidence: { type: Type.STRING }
-      },
-      required: ['value', 'status', 'sourceType', 'confidence']
-    },
-    subcategory: {
-      type: Type.OBJECT,
-      properties: {
-        value: { type: Type.STRING },
-        status: { type: Type.STRING },
-        sourceType: { type: Type.STRING },
-        confidence: { type: Type.STRING }
-      }
-    },
-    brand: {
-      type: Type.OBJECT,
-      properties: {
-        value: { type: Type.STRING },
-        status: { type: Type.STRING },
-        sourceType: { type: Type.STRING },
-        confidence: { type: Type.STRING }
-      }
-    },
-    compatibleDevices: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          value: { type: Type.STRING },
-          status: { type: Type.STRING },
-          sourceType: { type: Type.STRING },
-          confidence: { type: Type.STRING },
-          evidence: { type: Type.STRING }
-        },
-        required: ['value', 'status', 'sourceType', 'confidence']
-      }
-    },
-    materials: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          value: { type: Type.STRING },
-          status: { type: Type.STRING },
-          sourceType: { type: Type.STRING },
-          confidence: { type: Type.STRING },
-          evidence: { type: Type.STRING }
-        },
-        required: ['value', 'status', 'sourceType', 'confidence']
-      }
-    },
-    colors: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          value: { type: Type.STRING },
-          status: { type: Type.STRING },
-          sourceType: { type: Type.STRING },
-          confidence: { type: Type.STRING }
-        },
-        required: ['value', 'status', 'sourceType', 'confidence']
-      }
-    },
-    finish: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          value: { type: Type.STRING },
-          status: { type: Type.STRING },
-          sourceType: { type: Type.STRING },
-          confidence: { type: Type.STRING }
-        },
-        required: ['value', 'status', 'sourceType', 'confidence']
-      }
-    },
-    features: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          value: { type: Type.STRING },
-          status: { type: Type.STRING },
-          sourceType: { type: Type.STRING },
-          confidence: { type: Type.STRING }
-        },
-        required: ['value', 'status', 'sourceType', 'confidence']
-      }
-    },
-    useCases: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          value: { type: Type.STRING },
-          status: { type: Type.STRING },
-          sourceType: { type: Type.STRING },
-          confidence: { type: Type.STRING }
-        },
-        required: ['value', 'status', 'sourceType', 'confidence']
-      }
-    },
-    targetCustomer: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          value: { type: Type.STRING },
-          status: { type: Type.STRING },
-          sourceType: { type: Type.STRING },
-          confidence: { type: Type.STRING }
-        },
-        required: ['value', 'status', 'sourceType', 'confidence']
-      }
-    },
-    detectedClaims: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          value: { type: Type.STRING },
-          status: { type: Type.STRING },
-          sourceType: { type: Type.STRING },
-          confidence: { type: Type.STRING }
-        },
-        required: ['value', 'status', 'sourceType', 'confidence']
-      }
-    },
-    unknownInformation: {
+    userProvidedFacts: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
         properties: {
           name: { type: Type.STRING },
-          reason: { type: Type.STRING }
+          value: { type: Type.STRING },
+          sourceType: { type: Type.STRING },
+          confidence: { type: Type.STRING },
+          evidence: { type: Type.STRING }
         },
-        required: ['name', 'reason']
+        required: ['name', 'value', 'sourceType', 'confidence']
       }
     },
-    productKeywords: {
+    observedFacts: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          value: { type: Type.STRING },
+          sourceType: { type: Type.STRING },
+          confidence: { type: Type.STRING },
+          evidence: { type: Type.STRING }
+        },
+        required: ['name', 'value', 'sourceType', 'confidence']
+      }
+    },
+    researchedFacts: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          value: { type: Type.STRING },
+          sourceType: { type: Type.STRING },
+          confidence: { type: Type.STRING },
+          sourceTitle: { type: Type.STRING },
+          sourceUrl: { type: Type.STRING },
+          publisher: { type: Type.STRING },
+          evidence: { type: Type.STRING }
+        },
+        required: ['name', 'value', 'sourceType', 'confidence']
+      }
+    },
+    verifiedFacts: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          value: { type: Type.STRING },
+          sourceType: { type: Type.STRING },
+          confidence: { type: Type.STRING },
+          sourceTitle: { type: Type.STRING },
+          sourceUrl: { type: Type.STRING },
+          publisher: { type: Type.STRING },
+          evidence: { type: Type.STRING }
+        },
+        required: ['name', 'value', 'sourceType', 'confidence']
+      }
+    },
+    unknownFacts: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          value: { type: Type.STRING },
+          sourceType: { type: Type.STRING },
+          reason: { type: Type.STRING }
+        },
+        required: ['name', 'sourceType', 'reason']
+      }
+    },
+    potentialFacts: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          value: { type: Type.STRING },
+          status: { type: Type.STRING },
+          reason: { type: Type.STRING }
+        },
+        required: ['name', 'value', 'status', 'reason']
+      }
+    },
+    conflicts: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          field: { type: Type.STRING },
+          userValue: { type: Type.STRING },
+          researchedValue: { type: Type.STRING },
+          description: { type: Type.STRING },
+          sourceTitle: { type: Type.STRING },
+          sourceUrl: { type: Type.STRING }
+        },
+        required: ['field', 'userValue', 'researchedValue', 'description']
+      }
+    },
+    researchWarnings: {
       type: Type.ARRAY,
       items: { type: Type.STRING }
     },
+    researchStatus: { type: Type.STRING },
     verificationScore: { type: Type.NUMBER },
     summaryNotes: { type: Type.STRING }
   },
-  required: ['productName', 'category', 'unknownInformation', 'productKeywords', 'verificationScore', 'summaryNotes']
+  required: [
+    'productIdentity',
+    'userProvidedFacts',
+    'observedFacts',
+    'unknownFacts',
+    'researchStatus',
+    'verificationScore',
+    'summaryNotes'
+  ]
 };
 
 function sanitizeProductIntelligenceResponse(raw: any, product: any, groundingChunks?: any[]) {
-  // Extract grounding web search sources
+  // 1. Parse and extract real grounding web search sources
   const sources: any[] = [];
-  if (Array.isArray(groundingChunks)) {
+  if (Array.isArray(groundingChunks) && groundingChunks.length > 0) {
     groundingChunks.forEach((chunk, idx) => {
       if (chunk?.web?.uri) {
         try {
@@ -349,15 +365,25 @@ function sanitizeProductIntelligenceResponse(raw: any, product: any, groundingCh
             id: `src-${idx + 1}`,
             title: chunk.web.title || urlObj.hostname,
             url: chunk.web.uri,
+            publisher: urlObj.hostname.replace(/^www\./, ''),
             domain: urlObj.hostname,
-            reliabilityScore: urlObj.hostname.includes('official') || urlObj.hostname.includes('apple') || urlObj.hostname.includes('samsung') || urlObj.hostname.includes('nike') ? 95 : 85,
+            reliabilityScore:
+              urlObj.hostname.includes('official') ||
+              urlObj.hostname.includes('apple') ||
+              urlObj.hostname.includes('samsung') ||
+              urlObj.hostname.includes('sony') ||
+              urlObj.hostname.includes('nike') ||
+              urlObj.hostname.includes('beatsbydre')
+                ? 95
+                : 85,
             retrievedAt: new Date().toISOString()
           });
         } catch {
           sources.push({
             id: `src-${idx + 1}`,
-            title: chunk.web.title || 'Web Search Source',
+            title: chunk.web.title || 'Authoritative Web Source',
             url: chunk.web.uri,
+            publisher: 'Web Grounding',
             domain: 'web',
             reliabilityScore: 80,
             retrievedAt: new Date().toISOString()
@@ -367,143 +393,282 @@ function sanitizeProductIntelligenceResponse(raw: any, product: any, groundingCh
     });
   }
 
-  const sanitizeFact = (fact: any, defaultVal: string, defaultSource = 'USER_PROVIDED', defaultStatus = 'VERIFIED') => {
-    if (!fact || typeof fact !== 'object') {
-      return {
-        value: defaultVal,
-        status: defaultStatus,
-        sourceType: defaultSource,
-        confidence: 'HIGH'
-      };
+  const defaultSource = sources[0] || null;
+
+  const formattedPrice =
+    typeof product.price === 'number'
+      ? `${product.currency || '$'}${product.price.toFixed(2)}`
+      : `${product.currency || '$'}${product.price || '0.00'}`;
+
+  // 2. Canonical User Provided Facts (Always preserved verbatim)
+  const userProvidedFacts: any[] = [];
+  const addProvided = (name: string, val: any) => {
+    if (val !== undefined && val !== null && String(val).trim()) {
+      userProvidedFacts.push({
+        name,
+        value: String(val).trim(),
+        sourceType: 'USER_PROVIDED',
+        confidence: 'HIGH',
+        source: null,
+        evidence: `Explicitly provided by user in product ${name.toLowerCase()}`
+      });
     }
-    const validStatuses = ['VERIFIED', 'POTENTIAL', 'UNSUPPORTED', 'UNKNOWN', 'CONFLICTING'];
-    const validSources = ['USER_PROVIDED', 'AI_DETECTED', 'AI_INFERRED', 'RESEARCH_VERIFIED', 'IMAGE_OBSERVED', 'RESEARCH_FOUND'];
-    const validConf = ['HIGH', 'MEDIUM', 'LOW', 'NOT_APPLICABLE'];
-
-    return {
-      name: typeof fact.name === 'string' ? fact.name : undefined,
-      value: typeof fact.value === 'string' && fact.value.trim() ? fact.value.trim() : defaultVal,
-      status: validStatuses.includes(fact.status) ? fact.status : defaultStatus,
-      sourceType: validSources.includes(fact.sourceType) ? fact.sourceType : defaultSource,
-      confidence: validConf.includes(fact.confidence) ? fact.confidence : 'HIGH',
-      evidence: typeof fact.evidence === 'string' ? fact.evidence : undefined
-    };
   };
 
-  const sanitizeFactArray = (arr: any, defaultSource = 'AI_DETECTED', defaultStatus = 'POTENTIAL') => {
-    if (!Array.isArray(arr)) return [];
-    return arr.map(item => sanitizeFact(item, 'Unspecified', defaultSource, defaultStatus)).filter(f => f.value && f.value !== 'Unspecified');
-  };
-
-  const formattedPrice = typeof product.price === 'number'
-    ? `${product.currency || '$'}${product.price.toFixed(2)}`
-    : `${product.currency || '$'}${product.price || '0.00'}`;
-
-  // User Provided Facts array
-  const userProvidedFacts: any[] = [
-    { attributeName: 'Product Name', value: product.name || 'Unspecified Product', source: 'USER_PROVIDED', status: 'VERIFIED', confidence: 1.0 },
-    { attributeName: 'Category', value: product.category || 'General', source: 'USER_PROVIDED', status: 'VERIFIED', confidence: 1.0 },
-    { attributeName: 'Price', value: formattedPrice, source: 'USER_PROVIDED', status: 'VERIFIED', confidence: 1.0 }
-  ];
-
-  if (product.description) {
-    userProvidedFacts.push({ attributeName: 'Description', value: product.description, source: 'USER_PROVIDED', status: 'VERIFIED', confidence: 1.0 });
-  }
+  addProvided('Product Name', product.name || 'Unspecified Product');
+  addProvided('Category', product.category || 'General');
+  addProvided('Listed Price', formattedPrice);
+  if (product.description) addProvided('Description', product.description);
+  if (product.targetAudience) addProvided('Target Audience', product.targetAudience);
+  if (product.usp) addProvided('Unique Selling Proposition', product.usp);
 
   if (Array.isArray(product.features)) {
-    product.features.forEach((f: any, idx: number) => {
-      userProvidedFacts.push({ attributeName: `Feature ${idx + 1}`, value: String(f), source: 'USER_PROVIDED', status: 'VERIFIED', confidence: 1.0 });
+    product.features.forEach((feat: any, idx: number) => {
+      if (feat && String(feat).trim()) {
+        addProvided(`Provided Feature ${idx + 1}`, String(feat).trim());
+      }
     });
   }
 
-  // Dynamic category attributes mapping (Category-Agnostic)
-  const attributes: Record<string, any> = {
-    category: { attributeName: 'Category', value: product.category || 'General', source: 'USER_PROVIDED', status: 'VERIFIED', confidence: 1.0 }
+  // 3. Observed Facts from Image
+  const observedFacts: any[] = [];
+  if (Array.isArray(raw?.observedFacts)) {
+    raw.observedFacts.forEach((f: any) => {
+      if (f && typeof f.value === 'string' && f.value.trim() && f.value !== 'Not verified') {
+        observedFacts.push({
+          name: typeof f.name === 'string' && f.name.trim() ? f.name.trim() : 'Observed Characteristic',
+          value: f.value.trim(),
+          sourceType: 'OBSERVED',
+          confidence: f.confidence === 'LOW' ? 'LOW' : f.confidence === 'MEDIUM' ? 'MEDIUM' : 'HIGH',
+          source: null,
+          evidence: typeof f.evidence === 'string' ? f.evidence : 'Directly observed from uploaded product image'
+        });
+      }
+    });
+  }
+
+  // 4. Researched and Verified Facts (MUST have a valid source)
+  const verifiedFacts: any[] = [];
+  const rawVerified = Array.isArray(raw?.verifiedFacts) ? raw.verifiedFacts : Array.isArray(raw?.researchedFacts) ? raw.researchedFacts : [];
+
+  rawVerified.forEach((f: any) => {
+    if (f && typeof f.value === 'string' && f.value.trim() && f.value !== 'Not verified') {
+      const srcUrl = f.sourceUrl || (defaultSource ? defaultSource.url : '');
+      const srcTitle = f.sourceTitle || (defaultSource ? defaultSource.title : '');
+      const srcPublisher = f.publisher || (defaultSource ? defaultSource.publisher : 'Public Web Source');
+
+      if (srcUrl || srcTitle) {
+        verifiedFacts.push({
+          name: typeof f.name === 'string' && f.name.trim() ? f.name.trim() : 'Verified Specification',
+          value: f.value.trim(),
+          sourceType: 'VERIFIED',
+          confidence: f.confidence === 'LOW' ? 'LOW' : f.confidence === 'MEDIUM' ? 'MEDIUM' : 'HIGH',
+          source: {
+            title: srcTitle || 'Official Product Documentation',
+            url: srcUrl,
+            publisher: srcPublisher
+          },
+          evidence: typeof f.evidence === 'string' ? f.evidence : 'Confirmed via authoritative web research'
+        });
+      }
+    }
+  });
+
+  // 5. Unknown Facts
+  const unknownFacts: any[] = [];
+  const defaultUnknownList = [
+    { name: 'Warranty Terms', reason: 'No warranty details provided or verified' },
+    { name: 'Shipping Timeline & Policy', reason: 'Shipping terms not established' },
+    { name: 'Return Policy', reason: 'Return policy not provided' },
+    { name: 'Drop Protection & Waterproof Ratings', reason: 'No certified lab ratings verified' },
+    { name: 'Customer Review Counts & Ratings', reason: 'Real-time sales numbers not verified' }
+  ];
+
+  if (Array.isArray(raw?.unknownFacts) && raw.unknownFacts.length > 0) {
+    raw.unknownFacts.forEach((u: any) => {
+      if (u && typeof u.name === 'string' && u.name.trim()) {
+        unknownFacts.push({
+          name: u.name.trim(),
+          value: 'Not verified',
+          sourceType: 'UNKNOWN',
+          confidence: 'NOT_APPLICABLE',
+          source: null,
+          reason: typeof u.reason === 'string' && u.reason.trim() ? u.reason.trim() : 'Cannot be reliably established'
+        });
+      }
+    });
+  } else {
+    defaultUnknownList.forEach(u => {
+      unknownFacts.push({
+        name: u.name,
+        value: 'Not verified',
+        sourceType: 'UNKNOWN',
+        confidence: 'NOT_APPLICABLE',
+        source: null,
+        reason: u.reason
+      });
+    });
+  }
+
+  // 6. Potential Facts (Never treated as verified)
+  const potentialFacts: any[] = [];
+  if (Array.isArray(raw?.potentialFacts)) {
+    raw.potentialFacts.forEach((p: any) => {
+      if (p && typeof p.name === 'string' && p.name.trim() && p.value) {
+        potentialFacts.push({
+          name: p.name.trim(),
+          value: String(p.value).trim(),
+          status: 'POTENTIAL',
+          reason: typeof p.reason === 'string' ? p.reason.trim() : 'Inferred or unverified candidate'
+        });
+      }
+    });
+  }
+
+  // 7. Conflicts (e.g. price difference or conflicting specs)
+  const conflicts: any[] = [];
+  if (Array.isArray(raw?.conflicts)) {
+    raw.conflicts.forEach((c: any) => {
+      if (c && c.field && (c.userValue || c.researchedValue)) {
+        conflicts.push({
+          field: String(c.field),
+          userValue: String(c.userValue || 'Not specified'),
+          researchedValue: String(c.researchedValue || 'Not specified'),
+          description: String(c.description || 'Conflict between user input and researched data'),
+          source: c.sourceUrl ? { title: c.sourceTitle || 'Web Source', url: c.sourceUrl, publisher: 'Web' } : defaultSource
+        });
+      }
+    });
+  }
+
+  // Check price conflict explicitly if user price differs from researched
+  const researchedPriceFact = verifiedFacts.find(f => f.name.toLowerCase().includes('price') || f.name.toLowerCase().includes('msrp'));
+  if (researchedPriceFact && researchedPriceFact.value !== formattedPrice) {
+    const exists = conflicts.some(c => c.field.toLowerCase().includes('price'));
+    if (!exists) {
+      conflicts.push({
+        field: 'Price',
+        userValue: formattedPrice,
+        researchedValue: researchedPriceFact.value,
+        description: 'User-provided price differs from researched official MSRP',
+        source: researchedPriceFact.source
+      });
+    }
+  }
+
+  // 8. Research Warnings
+  const researchWarnings: string[] = Array.isArray(raw?.researchWarnings)
+    ? raw.researchWarnings.map((w: any) => String(w)).filter(Boolean)
+    : [];
+
+  // 9. Product Identity (Conservative, Never silently overwrites user name)
+  const rawIdent = raw?.productIdentity || {};
+  const userEnteredName = product.name || 'Unspecified Product';
+
+  const productNameIdentity: any = {
+    name: 'Product Name',
+    value: userEnteredName,
+    sourceType: 'USER_PROVIDED',
+    confidence: 'HIGH',
+    source: null,
+    possibleIdentification: rawIdent.productName?.possibleIdentification || rawIdent.brand?.possibleIdentification || undefined
   };
 
-  if (raw?.brand?.value) attributes.brand = { attributeName: 'Brand', value: raw.brand.value, source: raw.brand.sourceType || 'IMAGE_OBSERVED', status: raw.brand.status || 'POTENTIAL', confidence: 0.85 };
-  if (raw?.subcategory?.value) attributes.subcategory = { attributeName: 'Subcategory', value: raw.subcategory.value, source: 'INFERRED', status: 'POTENTIAL', confidence: 0.75 };
+  const brandIdentity: any = {
+    name: 'Brand',
+    value: rawIdent.brand?.value || 'Generic / Seller Provided',
+    sourceType: rawIdent.brand?.sourceType === 'OBSERVED' ? 'OBSERVED' : rawIdent.brand?.sourceType === 'VERIFIED' ? 'VERIFIED' : rawIdent.brand?.sourceType === 'USER_PROVIDED' ? 'USER_PROVIDED' : 'UNKNOWN',
+    confidence: rawIdent.brand?.confidence || 'HIGH',
+    possibleIdentification: rawIdent.brand?.possibleIdentification || undefined,
+    status: rawIdent.brand?.status || 'CONFIRMED'
+  };
 
-  const materials = sanitizeFactArray(raw?.materials, 'IMAGE_OBSERVED', 'POTENTIAL');
-  if (materials.length > 0) {
-    attributes.materials = { attributeName: 'Materials', value: materials.map(m => m.value).join(', '), source: 'IMAGE_OBSERVED', status: 'POTENTIAL', confidence: 0.8 };
+  const productTypeIdentity: any = {
+    name: 'Product Type',
+    value: rawIdent.productType?.value || product.category || 'Physical Product',
+    sourceType: rawIdent.productType?.sourceType === 'OBSERVED' ? 'OBSERVED' : 'USER_PROVIDED',
+    confidence: 'HIGH'
+  };
+
+  const modelIdentity: any = {
+    name: 'Model',
+    value: rawIdent.model?.value && rawIdent.model.value !== 'Not verified' && rawIdent.model.value !== 'UNKNOWN' ? rawIdent.model.value : 'UNKNOWN',
+    sourceType: rawIdent.model?.sourceType === 'VERIFIED' ? 'VERIFIED' : rawIdent.model?.sourceType === 'USER_PROVIDED' ? 'USER_PROVIDED' : 'UNKNOWN',
+    confidence: rawIdent.model?.confidence || (rawIdent.model?.value === 'UNKNOWN' ? 'NOT_APPLICABLE' : 'HIGH')
+  };
+
+  const categoryIdentity: any = {
+    name: 'Category',
+    value: product.category || 'General',
+    sourceType: 'USER_PROVIDED',
+    confidence: 'HIGH'
+  };
+
+  // Determine Research Status
+  let researchStatus: any = raw?.researchStatus || 'COMPLETED';
+  if (sources.length === 0 && verifiedFacts.length === 0) {
+    researchStatus = 'NO_RELIABLE_SOURCE';
+  } else if (verifiedFacts.length > 0 && sources.length > 0) {
+    researchStatus = 'COMPLETED';
   }
 
-  const colors = sanitizeFactArray(raw?.colors, 'IMAGE_OBSERVED', 'VERIFIED');
-  if (colors.length > 0) {
-    attributes.colors = { attributeName: 'Colors', value: colors.map(c => c.value).join(', '), source: 'IMAGE_OBSERVED', status: 'VERIFIED', confidence: 0.95 };
-  }
-
-  const compatibleDevices = sanitizeFactArray(raw?.compatibleDevices, 'USER_PROVIDED', 'VERIFIED');
-  if (compatibleDevices.length > 0) {
-    attributes.compatibility = { attributeName: 'Compatibility', value: compatibleDevices.map(d => d.value).join(', '), source: 'USER_PROVIDED', status: 'VERIFIED', confidence: 0.9 };
-  }
-
-  const unknownInfo = Array.isArray(raw?.unknownInformation)
-    ? raw.unknownInformation.map((u: any) => ({
-        name: typeof u.name === 'string' ? u.name : 'Unspecified Attribute',
-        reason: typeof u.reason === 'string' ? u.reason : 'Not provided by seller or verified source'
-      }))
-    : [
-        { name: 'Warranty Terms', reason: 'Not provided by seller' },
-        { name: 'Shipping Timeline', reason: 'Not specified in product description' }
-      ];
-
-  const keywords = Array.isArray(raw?.productKeywords) && raw.productKeywords.length > 0
-    ? raw.productKeywords.map((k: any) => String(k)).filter(Boolean)
-    : [product.category || 'ecommerce', product.name || 'product'];
-
+  // 10. Synthesize Universal Product Intelligence Profile
   const universalProfile = {
-    id: 'profile-' + Date.now(),
-    productId: product.id || 'unknown',
-    lastUpdated: new Date().toISOString(),
-    identity: {
-      name: product.name || 'Unspecified Product',
-      brand: raw?.brand?.value || 'Generic',
-      model: raw?.model?.value || 'Standard',
-      category: product.category || 'General',
-      subcategory: raw?.subcategory?.value || product.category || 'General',
-      productType: product.category || 'Physical Product'
+    productIdentity: {
+      brand: brandIdentity,
+      productName: productNameIdentity,
+      productType: productTypeIdentity,
+      model: modelIdentity,
+      category: categoryIdentity
     },
-    attributes,
     userProvidedFacts,
-    visualFacts: colors.concat(materials).map(f => ({ attributeName: f.name || 'Visual Attribute', value: f.value, source: 'IMAGE_OBSERVED', status: f.status, confidence: 0.85 })),
-    researchedFacts: [],
-    unknownFacts: unknownInfo,
-    conflicts: [],
-    pricing: {
-      amount: typeof product.price === 'number' ? product.price : 0,
-      currency: product.currency || '$',
-      formatted: formattedPrice,
-      source: 'USER_PROVIDED'
-    },
-    variants: colors.map(c => c.value),
+    observedFacts,
+    researchedFacts: verifiedFacts,
+    verifiedFacts,
+    unknownFacts,
+    potentialFacts,
     sources,
-    productKeywords: keywords,
-    targetAudience: product.targetAudience ? [product.targetAudience] : ['General Ecommerce Buyers'],
-    overallConfidenceScore: typeof raw?.verificationScore === 'number' && !isNaN(raw.verificationScore) ? Math.min(100, Math.max(0, raw.verificationScore)) : 85,
-    summaryNotes: typeof raw?.summaryNotes === 'string' && raw.summaryNotes.trim() ? raw.summaryNotes.trim() : 'Universal Product Profile synthesized and facts verified across sources.'
+    conflicts,
+    researchWarnings,
+    researchStatus,
+    overallScore: typeof raw?.verificationScore === 'number' && !isNaN(raw.verificationScore) ? Math.min(100, Math.max(0, raw.verificationScore)) : 88,
+    summaryNotes: typeof raw?.summaryNotes === 'string' && raw.summaryNotes.trim() ? raw.summaryNotes.trim() : 'Product facts verified and classified into canonical source tiers.'
   };
 
-  let userFeatures = sanitizeFactArray(raw?.features, 'USER_PROVIDED', 'VERIFIED');
-  if (userFeatures.length === 0 && Array.isArray(product.features) && product.features.length > 0) {
-    userFeatures = product.features.map((f: any) => ({
-      name: 'Provided Feature',
-      value: String(f),
-      status: 'VERIFIED',
-      sourceType: 'USER_PROVIDED',
-      confidence: 'HIGH'
-    }));
-  }
+  // Map dynamic attributes for legacy/view compatibility
+  const dynamicAttributes: Record<string, any> = {};
+  userProvidedFacts.forEach(f => {
+    dynamicAttributes[f.name.toLowerCase().replace(/[^a-z0-9]/g, '_')] = f;
+  });
+  observedFacts.forEach(f => {
+    dynamicAttributes[f.name.toLowerCase().replace(/[^a-z0-9]/g, '_')] = f;
+  });
+  verifiedFacts.forEach(f => {
+    dynamicAttributes[f.name.toLowerCase().replace(/[^a-z0-9]/g, '_')] = f;
+  });
 
   return {
     id: 'intel-' + Date.now(),
     productId: product.id || 'unknown',
     lastAnalyzedAt: new Date().toISOString(),
-    productName: sanitizeFact(raw?.productName, product.name || 'Unspecified Product', 'USER_PROVIDED', 'VERIFIED'),
-    category: sanitizeFact(raw?.category, product.category || 'General', 'USER_PROVIDED', 'VERIFIED'),
-    subcategory: raw?.subcategory ? sanitizeFact(raw.subcategory, '', 'AI_INFERRED', 'POTENTIAL') : undefined,
-    brand: raw?.brand ? sanitizeFact(raw.brand, 'Generic', 'AI_DETECTED', 'POTENTIAL') : undefined,
+    productName: {
+      value: userEnteredName,
+      status: 'VERIFIED',
+      sourceType: 'USER_PROVIDED',
+      confidence: 'HIGH'
+    },
+    category: {
+      value: product.category || 'General',
+      status: 'VERIFIED',
+      sourceType: 'USER_PROVIDED',
+      confidence: 'HIGH'
+    },
+    brand: {
+      value: brandIdentity.value,
+      status: brandIdentity.status === 'CONFIRMED' ? 'VERIFIED' : 'POTENTIAL',
+      sourceType: brandIdentity.sourceType,
+      confidence: brandIdentity.confidence
+    },
     description: product.description ? {
       value: product.description,
       status: 'VERIFIED',
@@ -517,20 +682,14 @@ function sanitizeProductIntelligenceResponse(raw: any, product: any, groundingCh
       status: 'VERIFIED',
       sourceType: 'USER_PROVIDED'
     },
-    compatibleDevices,
-    materials,
-    colors,
-    finish: sanitizeFactArray(raw?.finish, 'AI_DETECTED', 'POTENTIAL'),
-    features: userFeatures,
-    useCases: sanitizeFactArray(raw?.useCases, 'AI_INFERRED', 'POTENTIAL'),
-    targetCustomer: sanitizeFactArray(raw?.targetCustomer, 'USER_PROVIDED', 'VERIFIED'),
-    detectedClaims: sanitizeFactArray(raw?.detectedClaims, 'AI_DETECTED', 'POTENTIAL'),
-    unknownInformation: unknownInfo,
-    productKeywords: keywords,
+    dynamicAttributes,
+    unknownInformation: unknownFacts.map(u => ({ name: u.name, reason: u.reason || 'Unverified' })),
+    productKeywords: Array.isArray(product.tags) && product.tags.length > 0 ? product.tags : [product.category || 'ecommerce', product.name || 'product'],
     researchSources: sources,
     sources,
-    verificationScore: universalProfile.overallConfidenceScore,
+    verificationScore: universalProfile.overallScore,
     summaryNotes: universalProfile.summaryNotes,
+    researchStatus,
     universalProfile
   };
 }
@@ -896,31 +1055,32 @@ app.post('/api/analyze-product-intelligence', async (req, res) => {
   try {
     const imagePart = await getImagePart(product.image);
 
-    const systemInstruction = `You are Sellora AI's Universal Product Intelligence Engine — an advanced product understanding, category discovery, web research, and fact verification module.
+    const systemInstruction = `You are Sellora AI's Universal Product Intelligence Research Engine (Phase 1).
+Your mission is to perform rigorous, grounded product understanding, web research, fact verification, and anomaly detection for ANY physical product (electronics, cosmetics, shoes, clothing, furniture, tools, sports gear, etc.).
 
-UNIVERSAL CATEGORY DISCOVERY:
-You work for ALL physical product categories (laptops, shoes, cosmetics, smartphones, furniture, clothing, jewelry, tools, etc.). Adapt dynamic attributes based on category.
-
-STRICT SOURCE TYPES (MUST be one of these strings):
-- USER_PROVIDED: Information explicitly stated in the user text input. Always set status="VERIFIED", confidence="HIGH".
-- AI_DETECTED: Visually observed in the product image (e.g. matte finish, camera cutouts, color, visible texture). Set status="VERIFIED" if clear visual match, or status="POTENTIAL" if secondary observation.
-- RESEARCH_VERIFIED: Confirmed via web search grounding. Set status="VERIFIED" or "POTENTIAL".
-- AI_INFERRED: Reasonable inference based on product type or design. MUST set status="POTENTIAL" or "UNKNOWN". NEVER set status="VERIFIED" for pure inference!
+STRICT SOURCE CLASSIFICATION (MUST be one of these strings):
+- OBSERVED: Directly visible in the uploaded product image (e.g., color, visible texture, button layout, visible ports, matte/glossy finish). Set confidence="HIGH" or "MEDIUM".
+- USER_PROVIDED: Explicitly entered or supplied by the user (name, description, features, price). Always preserve user data verbatim.
+- VERIFIED: Confirmed by authoritative web research / official product documentation via Google Search grounding. MUST include source title, source URL, publisher, and evidence.
+- UNKNOWN: Cannot be reliably established from image, user data, or authoritative web research. Value MUST be "Not verified". Reason must explain what is missing.
 
 STRICT STATUS VALUES (MUST be one of these strings):
-"VERIFIED", "POTENTIAL", "UNSUPPORTED", "UNKNOWN", "CONFLICTING".
+"CONFIRMED", "REQUIRES_CONFIRMATION", "UNVERIFIED", "POTENTIAL", "CONFLICTING".
 
-STRICT ANTI-HALLUCINATION POLICY:
-The AI must NEVER invent or hallucinate:
-- warranty terms or guarantees
-- shipping times or policies
-- return policies or money-back offers
-- price discounts or star ratings
-- review counts or customer sales numbers
-- drop protection ratings or waterproof IP ratings
-- exact materials or technical specs not visible or explicitly stated
-
-Unless explicitly provided by the user, unmistakably visible in the image, or verified via web research, unverified technical attributes MUST be listed in "unknownInformation" with clear reasons, and marked with status="UNKNOWN".
+CORE TRUTHFULNESS & ANTI-HALLUCINATION RULES:
+1. TRUTHFULNESS OVER GUESSWORK: Sellora strictly prefers "I don't know" over "I think this is probably true." Never invent specifications, features, ratings, or policies.
+2. CONSERVATIVE IDENTIFICATION: Do NOT guess specific model numbers unless confirmed by search grounding or clear visible labeling. If exact model is unverified, set model value to "UNKNOWN" with sourceType="UNKNOWN".
+3. CONFLICT & OVERWRITE PROTECTION: NEVER silently overwrite user-provided information.
+   - If user wrote "headphone bit's", preserve productName as "headphone bit's" with sourceType="USER_PROVIDED". If research finds "Beats", add possibleIdentification="Beats", status="REQUIRES_CONFIRMATION", and add a researchWarning.
+   - If user specified a price (e.g. $49.99), the user's price is ALWAYS USER_PROVIDED. If research finds a different MSRP ($59.99), record a conflict in "conflicts" with field="Price", userValue="$49.99", researchedValue="$59.99", and description explaining the difference.
+4. PROHIBITED FABRICATIONS: You are strictly forbidden from inventing:
+   - Warranty terms, return policies, or money-back guarantees
+   - Shipping times, delivery guarantees, or global shipping claims
+   - Drop protection ratings (e.g. "military grade drop test"), waterproof ratings (e.g. "IP68") unless officially documented
+   - Customer review counts, average star ratings, or sales statistics
+   - Promotional fluff ("luxury masterpiece", "elite performance", "risk-free")
+   If any of these are not explicitly provided or verified, they MUST be classified in unknownFacts.
+5. GROUNDING & SOURCES: Every verifiedFact MUST have sourceTitle, sourceUrl, publisher, and evidence. If search grounding does not return authoritative corroboration, classify as unknownFacts or potentialFacts (with status="POTENTIAL").
 
 Your output MUST strictly adhere to the JSON schema.`;
 
@@ -928,18 +1088,23 @@ Your output MUST strictly adhere to the JSON schema.`;
       ? `${product.currency || '$'}${product.price.toFixed(2)}`
       : `${product.currency || '$'}${product.price || '0.00'}`;
 
-    const userPrompt = `Analyze this product and generate a structured Universal Product Intelligence Profile.
+    const userPrompt = `Perform rigorous Product Intelligence Research on this item.
 
-USER-PROVIDED DETAILS:
+USER-PROVIDED PRODUCT INPUTS:
 - Product Name: ${product.name || 'Unspecified'}
-- Category: ${product.category || 'Unspecified'}
-- Price: ${formattedPrice}
+- Category: ${product.category || 'General'}
+- Listed Price: ${formattedPrice}
 - Description: ${product.description || 'None provided'}
 - Features: ${product.features?.join(', ') || 'None provided'}
 - Target Audience: ${product.targetAudience || 'General ecommerce buyers'}
 - USP: ${product.usp || 'None provided'}
 
-Extract user-provided facts, detect image attributes, perform product research if necessary, list unknown attributes clearly, and calculate a verification score (0-100).`;
+RESEARCH & VERIFICATION INSTRUCTIONS:
+1. Examine the image (if provided) for visual characteristics (OBSERVED).
+2. Use Google Search grounding to research authoritative product specifications, official brand/model details, verified materials, and official pricing.
+3. Compare researched facts with user-provided inputs to detect any conflicts or spelling/brand discrepancies.
+4. List all unverified or missing specifications in unknownFacts with clear reasons.
+5. Compute an overall verification confidence score (0-100) and provide factual summary notes.`;
 
     const contents: any = [];
     if (imagePart) {

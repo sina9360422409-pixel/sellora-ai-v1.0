@@ -40,6 +40,7 @@ export interface SerializableProductDto {
     verifiedInformation?: any[];
     unknownInformation?: any[];
   } | null;
+  productIntelligence?: any;
 }
 
 const DELAY = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
