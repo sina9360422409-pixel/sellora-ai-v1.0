@@ -8,13 +8,16 @@ import {
   UniversalProductIntelligenceProfile,
   NormalizedFact,
   FactItem,
-  ResearchSource
+  ResearchSource,
+  ProductKnowledgeProfile
 } from '../types';
 import { toSerializableProductDto } from './mockAiService';
+import { productKnowledgeService } from './productKnowledgeService';
 
 export interface AnalysisResponse {
   success: boolean;
   intelligence: ProductIntelligence;
+  knowledgeProfile?: ProductKnowledgeProfile;
   isRealAi?: boolean;
   message?: string;
   diagnostic?: string;
@@ -233,7 +236,7 @@ export function createFallbackProductIntelligence(
     summaryNotes: note
   };
 
-  return {
+  const intelObj: ProductIntelligence = {
     id: 'intel-' + Date.now(),
     productId: product.id || 'unknown',
     lastAnalyzedAt: new Date().toISOString(),
@@ -288,6 +291,10 @@ export function createFallbackProductIntelligence(
     researchStatus: 'NO_RELIABLE_SOURCE',
     universalProfile
   };
+
+  const knowledgeProfile = productKnowledgeService.getOrProfileProduct(product, intelObj);
+  intelObj.knowledgeProfile = knowledgeProfile;
+  return intelObj;
 }
 
 export const productIntelligenceService = {
@@ -328,14 +335,19 @@ export const productIntelligenceService = {
       const data = await response.json();
 
       if (response.ok && data.success && data.intelligence) {
+        const intel: ProductIntelligence = data.intelligence;
+        const knowledgeProfile = data.knowledgeProfile || productKnowledgeService.getOrProfileProduct(product, intel, { forceRefresh: options?.forceRefresh });
+        intel.knowledgeProfile = knowledgeProfile;
+
         intelligenceCache.set(cacheKey, {
-          intelligence: data.intelligence,
+          intelligence: intel,
           timestamp: Date.now()
         });
 
         return {
           success: true,
-          intelligence: data.intelligence,
+          intelligence: intel,
+          knowledgeProfile,
           isRealAi: data.isRealAi ?? true,
           message: data.message || 'Product Intelligence Analysis Complete'
         };
@@ -345,6 +357,7 @@ export const productIntelligenceService = {
         return {
           success: false,
           intelligence: fallback,
+          knowledgeProfile: fallback.knowledgeProfile,
           isRealAi: false,
           message: data?.message || 'Product Intelligence currently operating on user-provided facts.',
           diagnostic: data?.diagnostic

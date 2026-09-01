@@ -1137,13 +1137,17 @@ RESEARCH & VERIFICATION INSTRUCTIONS:
     const structuredData = JSON.parse(text);
     const sanitizedIntel = sanitizeProductIntelligenceResponse(structuredData, product, groundingChunks);
 
+    const knowledgeProfile = buildServerProductKnowledgeProfile(product, sanitizedIntel.universalProfile);
+    (sanitizedIntel as any).knowledgeProfile = knowledgeProfile;
+
     console.log(`[Sellora Server] Product Intelligence analysis completed for: "${product.name}" (Sources found: ${sanitizedIntel.sources?.length || 0})`);
 
     return res.json({
       success: true,
       isRealAi: true,
       message: 'Universal Product Intelligence analysis complete',
-      intelligence: sanitizedIntel
+      intelligence: sanitizedIntel,
+      knowledgeProfile
     });
   } catch (err: any) {
     const errMsg = err?.message || String(err);
@@ -1513,6 +1517,112 @@ function getFallbackAnalysis(product: any) {
       warnings: strictAnalysis.analysisWarnings,
       strictAnalysis
     }
+  };
+}
+
+// Build server-side Product Knowledge Profile for Phase 2
+function buildServerProductKnowledgeProfile(product: any, universalProfile?: any) {
+  const now = new Date().toISOString();
+  const timestamp = Date.now();
+
+  const userProvidedFacts: any[] = [
+    { id: `fact-1-${timestamp}`, name: 'Product Name', value: product.name || 'Unspecified Product', category: 'Identity', provenance: 'USER_PROVIDED', confidence: 'HIGH', status: 'USER_PROVIDED', isPermittedForGeneration: true },
+    { id: `fact-2-${timestamp}`, name: 'Category', value: product.category || 'General', category: 'Identity', provenance: 'USER_PROVIDED', confidence: 'HIGH', status: 'USER_PROVIDED', isPermittedForGeneration: true },
+    { id: `fact-3-${timestamp}`, name: 'Listed Price', value: `${product.currency || '$'}${product.price}`, category: 'Pricing', provenance: 'USER_PROVIDED', confidence: 'HIGH', status: 'USER_PROVIDED', isPermittedForGeneration: true }
+  ];
+
+  if (product.description) {
+    userProvidedFacts.push({ id: `fact-4-${timestamp}`, name: 'Description', value: product.description, category: 'Overview', provenance: 'USER_PROVIDED', confidence: 'HIGH', status: 'USER_PROVIDED', isPermittedForGeneration: true });
+  }
+
+  if (Array.isArray(product.features)) {
+    product.features.forEach((feat: string, idx: number) => {
+      userProvidedFacts.push({ id: `fact-feat-${idx}-${timestamp}`, name: `Feature ${idx + 1}`, value: feat, category: 'Features', provenance: 'USER_PROVIDED', confidence: 'HIGH', status: 'USER_PROVIDED', isPermittedForGeneration: true });
+    });
+  }
+
+  const observedFacts: any[] = [];
+  if (universalProfile?.observedFacts && Array.isArray(universalProfile.observedFacts)) {
+    universalProfile.observedFacts.forEach((f: any, idx: number) => {
+      observedFacts.push({
+        id: `fact-obs-${idx}-${timestamp}`,
+        name: f.name || 'Observed Feature',
+        value: f.value || '',
+        category: 'Visual & Physical',
+        provenance: 'OBSERVED_FROM_IMAGE',
+        confidence: f.confidence || 'HIGH',
+        status: 'OBSERVED',
+        isPermittedForGeneration: true
+      });
+    });
+  }
+
+  const verifiedFacts: any[] = [];
+  if (universalProfile?.verifiedFacts && Array.isArray(universalProfile.verifiedFacts)) {
+    universalProfile.verifiedFacts.forEach((f: any, idx: number) => {
+      verifiedFacts.push({
+        id: `fact-ver-${idx}-${timestamp}`,
+        name: f.name || 'Verified Spec',
+        value: f.value || '',
+        category: 'Verified Technical',
+        provenance: 'VERIFIED',
+        confidence: f.confidence || 'HIGH',
+        status: 'VERIFIED',
+        isPermittedForGeneration: true,
+        evidence: f.source ? {
+          sourceUrl: f.source.url,
+          sourceTitle: f.source.title,
+          publisher: f.source.publisher,
+          retrievedAt: now,
+          confidence: 'HIGH',
+          sourceType: 'SEARCH_GROUNDED'
+        } : undefined
+      });
+    });
+  }
+
+  const unknownFacts = universalProfile?.unknownFacts || [
+    { name: 'Warranty Terms', reason: 'Unverified' },
+    { name: 'Shipping Timeline', reason: 'Unverified' },
+    { name: 'Return Policy', reason: 'Unverified' }
+  ];
+
+  const conflicts = universalProfile?.conflicts || [];
+
+  const brandVal = universalProfile?.productIdentity?.brand?.value || 'Generic';
+  const modelVal = universalProfile?.productIdentity?.model?.value || 'UNKNOWN';
+
+  return {
+    version: 1,
+    lastUpdated: now,
+    freshnessTimestamp: timestamp,
+    productId: product.id || `prod-${timestamp}`,
+    identity: {
+      productName: userProvidedFacts[0],
+      brand: { id: `brand-${timestamp}`, name: 'Brand', value: brandVal, category: 'Identity', provenance: brandVal !== 'Generic' ? 'USER_PROVIDED' : 'UNKNOWN', confidence: brandVal !== 'Generic' ? 'HIGH' : 'UNKNOWN', status: brandVal !== 'Generic' ? 'USER_PROVIDED' : 'UNKNOWN', isPermittedForGeneration: brandVal !== 'Generic' },
+      model: { id: `model-${timestamp}`, name: 'Model', value: modelVal, category: 'Identity', provenance: modelVal !== 'UNKNOWN' ? 'VERIFIED' : 'UNKNOWN', confidence: modelVal !== 'UNKNOWN' ? 'HIGH' : 'UNKNOWN', status: modelVal !== 'UNKNOWN' ? 'VERIFIED' : 'UNKNOWN', isPermittedForGeneration: modelVal !== 'UNKNOWN' },
+      category: userProvidedFacts[1],
+      subcategory: userProvidedFacts[1],
+      productType: userProvidedFacts[1]
+    },
+    attributes: {
+      features: userProvidedFacts.filter((f: any) => f.category === 'Features'),
+      specifications: [...verifiedFacts, ...observedFacts]
+    },
+    categoryAttributes: {},
+    userProvidedFacts,
+    observedFacts,
+    researchedFacts: verifiedFacts,
+    verifiedFacts,
+    inferredFacts: [],
+    unknownFacts,
+    potentialAssumptions: [],
+    conflicts,
+    evidenceSources: universalProfile?.sources || [],
+    overallConfidenceScore: universalProfile?.overallScore || 88,
+    qualityGatePassed: conflicts.length === 0,
+    warnings: universalProfile?.researchWarnings || [],
+    summaryNotes: universalProfile?.summaryNotes || 'Product Knowledge Profile initialized.'
   };
 }
 

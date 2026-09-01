@@ -41,6 +41,7 @@ export interface SerializableProductDto {
     unknownInformation?: any[];
   } | null;
   productIntelligence?: any;
+  knowledgeProfile?: any;
 }
 
 const DELAY = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -154,7 +155,8 @@ export function toSerializableProductDto(product: any): SerializableProductDto {
     usp: typeof product.usp === 'string' ? product.usp : null,
     facts: sanitizedFacts,
     strictAnalysis,
-    productIntelligence: product.productIntelligence && typeof product.productIntelligence === 'object' ? product.productIntelligence : undefined
+    productIntelligence: product.productIntelligence && typeof product.productIntelligence === 'object' ? product.productIntelligence : undefined,
+    knowledgeProfile: product.knowledgeProfile || product.productIntelligence?.knowledgeProfile || undefined
   };
 }
 

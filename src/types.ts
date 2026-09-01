@@ -156,6 +156,135 @@ export interface UniversalProductIntelligenceProfile {
   summaryNotes?: string;
 }
 
+// ==================================================
+// PHASE 2 — PRODUCT KNOWLEDGE LAYER & QUALITY GATE TYPES
+// ==================================================
+
+export type KnowledgeProvenance =
+  | 'USER_PROVIDED'
+  | 'OBSERVED_FROM_IMAGE'
+  | 'RESEARCHED'
+  | 'VERIFIED'
+  | 'INFERRED'
+  | 'UNKNOWN';
+
+export type KnowledgeConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+
+export interface KnowledgeSourceEvidence {
+  sourceUrl?: string;
+  sourceTitle?: string;
+  sourceType?: 'OFFICIAL_MANUFACTURER' | 'OFFICIAL_DOCS' | 'RETAILER_DOCS' | 'SEARCH_GROUNDED' | 'USER_INPUT' | 'IMAGE_ANALYSIS';
+  extractedFact?: string;
+  publicationDate?: string;
+  retrievedAt: string;
+  confidence: KnowledgeConfidence;
+  relationshipToProduct?: 'EXACT_MATCH' | 'HIGHLY_SIMILAR' | 'GENERIC_CATEGORY' | 'UNCERTAIN';
+  publisher?: string;
+}
+
+export interface KnowledgeFact {
+  id: string;
+  name: string;
+  value: string;
+  category: string; // e.g. 'Identity', 'Material', 'Dimension', 'Performance', 'Compatibility', 'Care', etc.
+  provenance: KnowledgeProvenance;
+  confidence: KnowledgeConfidence;
+  evidence?: KnowledgeSourceEvidence;
+  status: 'VERIFIED' | 'OBSERVED' | 'USER_PROVIDED' | 'INFERRED' | 'UNKNOWN' | 'CONFLICTING';
+  isPermittedForGeneration: boolean;
+  reasonIfNotPermitted?: string;
+}
+
+export interface KnowledgeConflict {
+  id: string;
+  field: string;
+  userValue: string;
+  researchedValue: string;
+  userProvenance: 'USER_PROVIDED';
+  researchedProvenance: 'RESEARCHED' | 'VERIFIED' | 'OBSERVED_FROM_IMAGE';
+  description: string;
+  status: 'OPEN_CONFLICT' | 'RESOLVED_BY_USER' | 'FLAGGED_FOR_REVIEW';
+  resolutionNote?: string;
+}
+
+export interface DynamicCategoryAttribute {
+  key: string;
+  label: string;
+  value: string;
+  provenance: KnowledgeProvenance;
+  confidence: KnowledgeConfidence;
+  unit?: string;
+}
+
+export interface ProductKnowledgeProfile {
+  version: number;
+  lastUpdated: string;
+  freshnessTimestamp: number;
+  productId: string;
+
+  // Identity
+  identity: {
+    productName: KnowledgeFact;
+    brand: KnowledgeFact;
+    model: KnowledgeFact;
+    category: KnowledgeFact;
+    subcategory: KnowledgeFact;
+    productType: KnowledgeFact;
+  };
+
+  // Category-Agnostic Core Characteristics
+  attributes: {
+    materials?: KnowledgeFact[];
+    dimensions?: KnowledgeFact[];
+    weight?: KnowledgeFact[];
+    compatibility?: KnowledgeFact[];
+    features?: KnowledgeFact[];
+    functionalCharacteristics?: KnowledgeFact[];
+    visualCharacteristics?: KnowledgeFact[];
+    usageScenarios?: KnowledgeFact[];
+    targetAudience?: KnowledgeFact[];
+    benefits?: KnowledgeFact[];
+    limitations?: KnowledgeFact[];
+    potentialRisks?: KnowledgeFact[];
+    careInstructions?: KnowledgeFact[];
+    specifications?: KnowledgeFact[];
+  };
+
+  // Flexible dynamic extensible category attributes dictionary
+  categoryAttributes: Record<string, DynamicCategoryAttribute>;
+
+  // Fact Collections by Provenance Tier
+  userProvidedFacts: KnowledgeFact[];
+  observedFacts: KnowledgeFact[];
+  researchedFacts: KnowledgeFact[];
+  verifiedFacts: KnowledgeFact[];
+  inferredFacts: KnowledgeFact[]; // AI assumptions (low confidence, blocked from generation unless verified)
+  unknownFacts: Array<{ name: string; reason: string }>;
+  potentialAssumptions: KnowledgeFact[];
+
+  // Conflict Resolution Ledger
+  conflicts: KnowledgeConflict[];
+
+  // Evidence & Grounding Sources
+  evidenceSources: KnowledgeSourceEvidence[];
+
+  // Overall Quality & Audit Metadata
+  overallConfidenceScore: number;
+  qualityGatePassed: boolean;
+  warnings: string[];
+  summaryNotes: string;
+}
+
+export interface QualityGateResult {
+  passed: boolean;
+  permittedFacts: KnowledgeFact[];
+  blockedFacts: KnowledgeFact[];
+  unresolvedConflicts: KnowledgeConflict[];
+  warnings: string[];
+  qualityScore: number;
+  prohibitedClaimsDetected: string[];
+}
+
 // Backward-compatible aliases
 export type FactSourceCategory = CanonicalSourceType;
 export type FactVerificationStatus = 'VERIFIED' | 'POTENTIAL' | 'UNSUPPORTED' | 'UNKNOWN' | 'CONFLICTING';
@@ -233,6 +362,9 @@ export interface ProductIntelligence {
   verificationScore: number; // 0-100 score
   summaryNotes: string;
   researchStatus?: ResearchStatus;
+
+  // Phase 2 Knowledge Layer Profile
+  knowledgeProfile?: ProductKnowledgeProfile;
 }
 
 export interface Product {
@@ -251,6 +383,7 @@ export interface Product {
   lastUpdated: string;
   aiContentCount?: number;
   productIntelligence?: ProductIntelligence;
+  knowledgeProfile?: ProductKnowledgeProfile;
 }
 
 export type ContentType = 'listing' | 'social' | 'ad' | 'image' | 'reply' | 'analysis';
