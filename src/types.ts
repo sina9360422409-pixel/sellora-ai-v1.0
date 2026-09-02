@@ -513,6 +513,89 @@ export interface Product {
   knowledgeProfile?: ProductKnowledgeProfile;
 }
 
+export interface PermittedFact {
+  id: string;
+  name: string;
+  value: string;
+  provenance:
+    | 'USER_PROVIDED'
+    | 'OBSERVED_FROM_IMAGE'
+    | 'RESEARCHED'
+    | 'VERIFIED'
+    | 'OBSERVED'
+    | 'INFERRED'
+    | 'UNKNOWN';
+  verificationStatus:
+    | 'USER_PROVIDED'
+    | 'VERIFIED'
+    | 'UNVERIFIED'
+    | 'CONFLICTED'
+    | 'REJECTED'
+    | 'PARTIALLY_VERIFIED';
+  confidence: number;
+  evidenceIds: string[];
+  generationAllowed: boolean;
+  category?: string;
+  reasonIfNotPermitted?: string;
+}
+
+export type NormalizedGenerationContentType =
+  | 'PRODUCT_LISTING'
+  | 'SOCIAL_CONTENT'
+  | 'ADVERTISEMENT'
+  | 'PRODUCT_IMAGE'
+  | 'CUSTOMER_REPLY';
+
+export type NormalizedGenerationTone =
+  | 'LUXURY'
+  | 'PROFESSIONAL'
+  | 'PREMIUM'
+  | 'FRIENDLY'
+  | 'BOLD'
+  | 'MINIMAL';
+
+export type GenerationErrorCode =
+  | 'INSUFFICIENT_PRODUCT_KNOWLEDGE'
+  | 'IDENTITY_UNCONFIRMED'
+  | 'CONFLICTED_FACTS'
+  | 'UNSUPPORTED_GENERATED_CLAIM'
+  | 'QUALITY_GATE_REJECTED'
+  | 'GENERATION_FAILED'
+  | 'SCHEMA_VALIDATION_FAILED'
+  | 'API_KEY_MISSING'
+  | 'RATE_LIMIT'
+  | 'NETWORK_ERROR'
+  | 'INVALID_RESPONSE';
+
+export interface GenerationInputContract {
+  productId: string;
+  productContext: {
+    name: string;
+    price?: number;
+    currency?: string;
+    description?: string;
+    imageUrl?: string;
+    category?: string;
+    features?: string[];
+    tags?: string[];
+    targetAudience?: string;
+    usp?: string;
+  };
+  permittedFacts: PermittedFact[];
+  generationConfig: {
+    contentType: ContentType | NormalizedGenerationContentType;
+    tone: ToneType | NormalizedGenerationTone;
+    campaignGoal?: string;
+    specialInstructions?: string;
+    platform?: string;
+    imageStyle?: string;
+    aspectRatio?: string;
+    customerInquiry?: string;
+    isRegeneration?: boolean;
+    variationSeed?: number;
+  };
+}
+
 export type ContentType = 'listing' | 'social' | 'ad' | 'image' | 'reply' | 'analysis';
 
 export type SocialPlatform = 'Instagram' | 'Facebook' | 'TikTok' | 'WhatsApp' | 'Other';

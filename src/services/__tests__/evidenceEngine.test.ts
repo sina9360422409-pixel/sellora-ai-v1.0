@@ -1,26 +1,25 @@
+import { describe, it } from 'vitest';
 import { sourceQualityService } from '../sourceQualityService';
 import { productIdentityService } from '../productIdentityService';
 import { factVerificationService } from '../factVerificationService';
 import { knowledgeQualityGate } from '../knowledgeQualityGate';
 import { KnowledgeFact, ProductKnowledgeProfile } from '../../types';
 
-console.log('====================================================');
-console.log('RUNNING EVIDENCE & SOURCE INTELLIGENCE LAYER TESTS (TEST A - TEST O)');
-console.log('====================================================\n');
+describe('Evidence Engine Tests', () => {
+  it('runs all evidence & source intelligence tests (A1-O2)', () => {
+    let passedTests = 0;
+    let totalTests = 0;
 
-let passedTests = 0;
-let totalTests = 0;
-
-function assert(condition: boolean, testName: string, detail?: string) {
-  totalTests++;
-  if (condition) {
-    passedTests++;
-    console.log(`✅ [PASS] ${testName}`);
-  } else {
-    console.error(`❌ [FAIL] ${testName}`);
-    if (detail) console.error(`   Detail: ${detail}`);
-  }
-}
+    function assert(condition: boolean, testName: string, detail?: string) {
+      totalTests++;
+      if (condition) {
+        passedTests++;
+        console.log(`✅ [PASS] ${testName}`);
+      } else {
+        console.error(`❌ [FAIL] ${testName}`);
+        if (detail) console.error(`   Detail: ${detail}`);
+      }
+    }
 
 // ---------------------------------------------------
 // TEST A: Exact product + official manufacturer source
@@ -549,8 +548,8 @@ console.log('\n====================================================');
 console.log(`TEST RESULTS: ${passedTests} / ${totalTests} PASSED`);
 console.log('====================================================\n');
 
-if (passedTests === totalTests) {
-  process.exit(0);
-} else {
-  process.exit(1);
-}
+    if (passedTests !== totalTests) {
+      throw new Error(`Evidence Engine test suite failed: ${passedTests}/${totalTests} passed`);
+    }
+  });
+});

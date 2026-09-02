@@ -42,7 +42,9 @@ export const factVerificationService = {
       return {
         updatedFact: {
           ...fact,
-          verificationStatus: 'VERIFIED',
+          verificationStatus: 'USER_PROVIDED',
+          status: 'USER_PROVIDED',
+          isPermittedForGeneration: true,
           lastVerifiedAt: new Date().toISOString()
         },
         evidenceReferences: [],

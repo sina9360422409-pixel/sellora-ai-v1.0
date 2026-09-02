@@ -8,6 +8,10 @@ import { productIdentityService } from './src/services/productIdentityService';
 import { factVerificationService } from './src/services/factVerificationService';
 import { knowledgeQualityGate } from './src/services/knowledgeQualityGate';
 import { researchCacheService } from './src/services/researchCacheService';
+import { productKnowledgeService } from './src/services/productKnowledgeService';
+import { schemaValidationService } from './src/services/schemaValidationService';
+import { promptBuilderService } from './src/services/promptBuilderService';
+import { claimValidationService } from './src/services/claimValidationService';
 
 dotenv.config();
 
@@ -1276,323 +1280,246 @@ function evaluateServerQualityGate(profile: any) {
 
 // 2. Knowledge-Driven Content Generation Endpoint (Listing, Social, Ad, Image, Reply)
 app.post('/api/generate-content', async (req, res) => {
-  const {
-    product: rawProduct,
-    type,
-    tone = 'Professional',
-    goal = 'More Sales',
-    platform,
-    imageStyle,
-    aspectRatio,
-    customerInquiry,
-    customPrompt,
-    isRegeneration,
-    variationSeed
-  } = req.body;
+  const startTime = Date.now();
 
-  if (!rawProduct || !type) {
-    return res.status(400).json({ error: 'Missing required parameters' });
+  // STEP 1: Normalize Request Contract (Server-Side Trust Boundary)
+  // Support both normalized GenerationInputContract and legacy UI payload formats
+  const rawBody = req.body || {};
+  const rawProduct = rawBody.product || (rawBody.productContext ? { ...rawBody.productContext, id: rawBody.productId } : null);
+  const rawType = rawBody.type || rawBody.generationConfig?.contentType || rawBody.contentType;
+
+  if (!rawProduct || !rawType) {
+    return res.status(400).json({
+      success: false,
+      errorCode: 'GENERATION_FAILED',
+      message: 'Missing required product or contentType parameters'
+    });
   }
 
   const product = sanitizeProductPayload(rawProduct);
+  const productId = product.id || rawBody.productId || `prod-${Date.now()}`;
+
+  // Map contentType between legacy ('listing', 'social', 'ad', 'image', 'reply') and normalized enum
+  const typeMap: Record<string, string> = {
+    PRODUCT_LISTING: 'listing',
+    SOCIAL_CONTENT: 'social',
+    ADVERTISEMENT: 'ad',
+    PRODUCT_IMAGE: 'image',
+    CUSTOMER_REPLY: 'reply',
+    listing: 'listing',
+    social: 'social',
+    ad: 'ad',
+    image: 'image',
+    reply: 'reply'
+  };
+  const normalizedTypeKey = typeMap[String(rawType)] || 'listing';
+  const normTypeEnum = normalizedTypeKey === 'listing' ? 'PRODUCT_LISTING' :
+    normalizedTypeKey === 'social' ? 'SOCIAL_CONTENT' :
+    normalizedTypeKey === 'ad' ? 'ADVERTISEMENT' :
+    normalizedTypeKey === 'reply' ? 'CUSTOMER_REPLY' : 'PRODUCT_IMAGE';
+
+  const toneInput = rawBody.tone || rawBody.generationConfig?.tone || 'Professional';
+  const campaignGoal = rawBody.goal || rawBody.generationConfig?.campaignGoal || 'More Sales';
+  const customPrompt = rawBody.customPrompt || rawBody.generationConfig?.specialInstructions || '';
+  const platform = rawBody.platform || rawBody.generationConfig?.platform;
+  const customerInquiry = rawBody.customerInquiry || rawBody.generationConfig?.customerInquiry;
+  const imageStyle = rawBody.imageStyle || rawBody.generationConfig?.imageStyle || 'Studio';
+  const aspectRatio = rawBody.aspectRatio || rawBody.generationConfig?.aspectRatio || '1:1';
+  const isRegeneration = Boolean(rawBody.isRegeneration || rawBody.generationConfig?.isRegeneration);
+  const variationSeed = rawBody.variationSeed || rawBody.generationConfig?.variationSeed || Date.now();
 
   if (!apiKey || !ai) {
-    return res.status(400).json({
+    return res.status(503).json({
       success: false,
       isRealAi: false,
-      message: 'Gemini AI is not configured.'
+      errorCode: 'API_KEY_MISSING',
+      message: 'Gemini AI is not configured on server.'
     });
   }
 
   try {
     const imagePart = await getImagePart(product.image);
 
-    // STEP 1: Retrieve or construct ProductKnowledgeProfile (Authoritative Knowledge Layer)
-    let knowledgeProfile = rawProduct.knowledgeProfile || rawProduct.productIntelligence?.knowledgeProfile;
-    if (!knowledgeProfile || typeof knowledgeProfile !== 'object') {
-      knowledgeProfile = buildServerProductKnowledgeProfile(product, rawProduct.productIntelligence?.universalProfile);
+    // STEP 2: Authoritative Knowledge Layer Retrieval & Quality Gate
+    // Ignore any client-sent verificationStatus, generationAllowed, or confidence overrides!
+    let knowledgeProfile: any = productKnowledgeService.getOrProfileProduct(product, rawProduct.productIntelligence);
+    
+    // Evaluate Quality Gate server-side
+    const gateResult = productKnowledgeService.evaluateQualityGate(knowledgeProfile);
+    const canonicalPermittedFacts = productKnowledgeService.getCanonicalPermittedFacts(knowledgeProfile);
+
+    // STEP 3: Identity & Pipeline Failure Mode Checks
+    const identityStatus = knowledgeProfile.identity?.normalizedIdentity?.identityStatus || 'CONFIRMED';
+    if (identityStatus === 'UNCONFIRMED' && canonicalPermittedFacts.length === 0) {
+      console.warn(`[Sellora Pipeline] Identity unconfirmed for productId="${productId}". Downgrading technical claims.`);
     }
 
-    // STEP 2: Evaluate Quality Gate (Enforcement Firewall)
-    const qualityGateResult = evaluateServerQualityGate(knowledgeProfile);
-    const permittedFacts = qualityGateResult.permittedFacts;
+    // Check for open unresolved conflicts
+    const unresolvedConflicts = gateResult.unresolvedConflicts || [];
 
-    // STEP 3: Format Knowledge Layer Context for Content Generation
-    const formattedPrice = typeof product.price === 'number'
-      ? `${product.currency || '$'}${product.price.toFixed(2)}`
-      : `${product.currency || '$'}${product.price || '0.00'}`;
-
-    let permittedFactsContext = '';
-    if (permittedFacts && permittedFacts.length > 0) {
-      permittedFactsContext = permittedFacts
-        .map((f: any) => `- [${f.provenance || 'VERIFIED'}] ${f.name}: ${f.value}`)
-        .join('\n');
-    } else {
-      permittedFactsContext = `- Product Name: ${product.name}\n- Category: ${product.category}\n- Listed Price: ${formattedPrice}`;
-    }
-
-    const unknownFactsList = knowledgeProfile.unknownFacts || [];
-    let unknownFactsContext = '';
-    if (unknownFactsList.length > 0) {
-      unknownFactsContext = unknownFactsList
-        .map((u: any) => `- ${typeof u === 'string' ? u : u.name}: UNKNOWN (${u.reason || 'Unverified'}). Do NOT claim or fabricate.`)
-        .join('\n');
-    } else {
-      unknownFactsContext = '- Warranty, shipping timeline, return policy, and exact lab ratings are UNKNOWN. Do NOT fabricate.';
-    }
-
-    const conflictsList = qualityGateResult.unresolvedConflicts || [];
-    let conflictsContext = '';
-    if (conflictsList.length > 0) {
-      conflictsContext = conflictsList
-        .map((c: any) => `- Open Conflict on ${c.field}: User provided "${c.userValue}", Research found "${c.researchedValue}". Avoid single definitive claims.`)
-        .join('\n');
-    } else {
-      conflictsContext = 'No open factual conflicts.';
-    }
-
-    const toneGuide: Record<string, string> = {
-      Professional: "Clear, trustworthy, precise, and business-oriented. Focus on facts, clear structure, and confident professionalism.",
-      Premium: "Refined, sophisticated, and quality-focused. Use elevated vocabulary emphasizing craftsmanship and elevated taste.",
-      Luxury: "Elegant, exclusive, sophisticated, and emotionally appealing tone. Create a high-end atmosphere without fabricating technical specifications or promises.",
-      Bold: "Confident, energetic, direct, and attention-grabbing style. Use punchy sentences and a strong memorable voice.",
-      Friendly: "Warm, approachable, conversational, and relatable tone. Speak like a helpful expert introducing a great find.",
-      Minimal: "Short, clean, modern, and simple. Remove clutter and focus purely on essential facts and direct appeal."
+    // STEP 4: Build Generation Input Contract & System Instruction
+    const generationInput: any = {
+      productId,
+      productContext: {
+        name: product.name,
+        price: product.price,
+        currency: product.currency,
+        description: product.description,
+        imageUrl: product.image,
+        category: product.category,
+        features: product.features,
+        tags: product.tags,
+        targetAudience: product.targetAudience,
+        usp: product.usp
+      },
+      permittedFacts: canonicalPermittedFacts,
+      generationConfig: {
+        contentType: normTypeEnum,
+        tone: toneInput,
+        campaignGoal,
+        specialInstructions: customPrompt,
+        platform,
+        imageStyle,
+        aspectRatio,
+        customerInquiry,
+        isRegeneration,
+        variationSeed
+      }
     };
 
-    const goalGuide: Record<string, string> = {
-      "More Sales": "Focus heavily on product benefits, purchase motivation, value proposition, and a clear conversion CTA.",
-      "More Clicks": "Craft intriguing hooks, curiosity-building headlines, and a strong compelling click call-to-action.",
-      "Brand Awareness": "Focus on memorable brand identity, distinctive positioning, and long-term brand connection.",
-      "Product Launch": "Create launch excitement, highlight key product details clearly, and encourage immediate exploration."
-    };
+    const systemInstruction = promptBuilderService.buildSystemInstruction(
+      canonicalPermittedFacts,
+      knowledgeProfile.unknownFacts || [],
+      unresolvedConflicts,
+      normTypeEnum,
+      toneInput,
+      campaignGoal
+    );
 
-    const selectedToneGuide = toneGuide[tone] || toneGuide['Professional'];
-    const selectedGoalGuide = goalGuide[goal] || goalGuide['More Sales'];
+    const userPrompt = promptBuilderService.buildUserPrompt(generationInput);
 
-    const specialInstructionsText = customPrompt && typeof customPrompt === 'string' && customPrompt.trim()
-      ? `SPECIAL USER INSTRUCTIONS:\n"${customPrompt.trim()}"\n- Adhere strictly to these instructions unless they conflict with truthfulness rules.`
-      : '';
-
-    const regenerationText = isRegeneration
-      ? `REGENERATION VARIATION (Seed: ${variationSeed || Date.now()}): Generate a distinct variation while maintaining permitted facts, tone, and goal.`
-      : '';
-
-    // STEP 4: Build System Instruction with Strict Knowledge Layer Enforcement
-    const systemInstruction = `You are Sellora AI's Professional Ecommerce Copywriter & Content Generator.
-You operate on Sellora's Knowledge-Driven Content Generation Architecture.
-
-KNOWLEDGE LAYER & FACTUAL SAFETY FIREWALL:
-All factual statements MUST be strictly grounded in the PERMITTED FACTS below.
-The Quality Gate has audited this product profile and filtered out unverified, inferred, or conflicting claims.
-
-PERMITTED PRODUCT FACTS (AUTHORITATIVE & VERIFIED):
-${permittedFactsContext}
-
-UNKNOWN FACTS & SPECIFICATIONS (STRICTLY DO NOT FABRICATE):
-${unknownFactsContext}
-
-FACTUAL CONFLICTS & WARNINGS:
-${conflictsContext}
-
-STRICT GENERATION RULES:
-1. TRUTHFUL GROUNDING ONLY:
-   - YOU MUST NOT invent technical specs, materials, battery capacity, IP ratings, warranties, return policies, shipping promises, certifications, or fake customer numbers.
-   - For unknown attributes, either omit them or use general, non-factual marketing phrasing (e.g. "crafted for everyday style").
-2. CREATIVE MARKETING STYLE ("${tone}") & GOAL ("${goal}"):
-   - Match requested Tone ("${tone}") and Campaign Goal ("${goal}").
-   - Styling MUST NOT convert an unknown attribute into a factual spec.
-3. CUSTOMER REPLIES (Format "reply"):
-   - If a customer inquires about an attribute listed under UNKNOWN FACTS (e.g., warranty, shipping timeline, or return policy), explicitly and politely state that specific terms are not currently specified, and advise contacting customer support directly.
-4. LANGUAGE PREFERENCE:
-   - If special instructions request a specific language, generate the ENTIRE response in that requested language while preserving product/brand names.
-
-JSON OUTPUT FORMAT REQUIREMENT:
-You MUST respond with valid JSON matching the requested structure for format "${type}".
-
-For format "listing":
-{
-  "contentType": "listing",
-  "title": "Clean, persuasive product title grounded strictly in permitted facts",
-  "shortDescription": "Concise product summary grounded strictly in permitted facts",
-  "bulletPoints": ["Factual bullet point 1", "Factual bullet point 2", "Factual bullet point 3"],
-  "keyFeatures": ["Key feature 1 grounded in facts", "Key feature 2 grounded in facts"],
-  "fullDescription": "Persuasive full description reflecting selected tone and goal without inventing fake specs, warranties, or shipping promises",
-  "seoKeywords": ["relevant keyword 1", "relevant keyword 2"],
-  "callToAction": "Clear call to action",
-  "warnings": []
-}
-
-For format "social":
-{
-  "contentType": "social",
-  "platform": "${platform || 'Instagram'}",
-  "hook": "Engaging social hook matching tone and goal",
-  "caption": "Platform-appropriate caption grounded strictly in permitted facts",
-  "hashtags": ["#tag1", "#tag2"],
-  "callToAction": "Call to action",
-  "mediaSuggestion": "Creative visual or video concept idea",
-  "bestTimeToPost": "Posting time recommendation",
-  "warnings": []
-}
-
-For format "ad":
-{
-  "contentType": "ad",
-  "platform": "${platform || 'Google'}",
-  "headline": "High-CTR ad headline",
-  "primaryText": "Factual primary ad copy without fake claims or fake guarantees",
-  "description": "Short factual ad description",
-  "callToAction": "Clear CTA text",
-  "audienceTargeting": "Suggested demographic target",
-  "warnings": []
-}
-
-For format "reply":
-{
-  "contentType": "reply",
-  "customerInquiry": "${customerInquiry || 'General Inquiry'}",
-  "recommendedReply": "Factual, polite response stating strictly permitted details. If customer asks about unverified details (like warranty or shipping), state honestly that details are not currently specified.",
-  "politeAlternative": "Polite alternative response option",
-  "warnings": []
-}
-
-For format "image":
-{
-  "contentType": "image",
-  "style": "${imageStyle || 'Studio'}",
-  "aspectRatio": "${aspectRatio || '1:1'}",
-  "prompt": "Detailed commercial photo generation prompt describing visual characteristics strictly grounded in permitted facts",
-  "negativePrompt": "blurry, low quality, distorted text, unverified logos",
-  "lighting": "Studio lighting concept",
-  "background": "Background description matching product tone",
-  "composition": "Framing and composition notes",
-  "warnings": []
-}`;
-
-    const prompt = `Generate ${type.toUpperCase()} content for:
-Product Name: ${product.name}
-Category: ${product.category}
-Price: ${formattedPrice}
-Tone: ${tone}
-Goal: ${goal}
-Platform: ${platform || 'General'}
-Customer Inquiry: ${customerInquiry || 'N/A'}
-
-${specialInstructionsText}
-${regenerationText}
-
-Remember: NO fake claims, NO fake warranties, NO fake shipping terms, NO fake reviews. Ground strictly in PERMITTED FACTS while applying persuasive tone "${tone}".`;
-
-    const contents: any = [];
+    const contents: any[] = [];
     if (imagePart) contents.push(imagePart);
-    contents.push({ text: prompt });
+    contents.push({ text: userPrompt });
+
+    // STEP 5: Call Gemini API with Structured Output Schema
+    const responseSchema = schemaValidationService.getSchemaForType(normTypeEnum);
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.6-flash',
       contents,
       config: {
         systemInstruction,
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        responseSchema
       }
     });
 
     const text = response.text;
     if (!text) {
-      throw new Error('Gemini returned an empty response');
+      return res.status(500).json({
+        success: false,
+        errorCode: 'GENERATION_FAILED',
+        message: 'Gemini returned an empty response'
+      });
     }
 
+    // STEP 6: Structured Output Validation
     let parsed: any;
     try {
       parsed = JSON.parse(text);
     } catch (pErr) {
-      console.error('[Sellora Server] Could not parse Gemini output as JSON:', text);
+      console.error(`[Sellora Pipeline] JSON parse error for productId="${productId}":`, text);
       return res.status(500).json({
         success: false,
-        message: 'Sellora received an invalid AI response. Please try again.'
+        errorCode: 'SCHEMA_VALIDATION_FAILED',
+        message: 'Invalid JSON returned by generation model'
       });
     }
 
-    // STEP 5: Post-Generation Compliance Audit & Sanitization
-    const userAndImageFactsText = `${product.name} ${product.description || ''} ${(product.features || []).join(' ')} ${product.usp || ''}`.toLowerCase();
-
-    const sanitizeField = (inputStr: string, fieldWarnings: string[]): string => {
-      if (!inputStr || typeof inputStr !== 'string') return inputStr;
-      let cleaned = inputStr;
-
-      const prohibitedTerms: { pattern: RegExp; replacement: string; reason: string }[] = [
-        { pattern: /30-day money-back guarantee/gi, replacement: 'standard customer support', reason: 'money-back guarantee' },
-        { pattern: /2-year (manufacturer )?warranty/gi, replacement: 'quality assurance', reason: 'warranty timeline' },
-        { pattern: /lifetime warranty/gi, replacement: 'quality design', reason: 'lifetime warranty' },
-        { pattern: /fast worldwide shipping/gi, replacement: 'standard delivery', reason: 'worldwide shipping claims' },
-        { pattern: /free express shipping/gi, replacement: 'standard shipping options', reason: 'free express shipping claims' },
-        { pattern: /military-grade (protection|tpu|durability)/gi, replacement: 'durable construction', reason: 'military-grade claims' },
-        { pattern: /magsafe (compatible|charging)/gi, replacement: 'device compatible', reason: 'MagSafe compatibility claim' },
-        { pattern: /10,000\+ (sold|satisfied customers)/gi, replacement: 'popular choice', reason: 'sales volume claim' },
-        { pattern: /rated 4\.9\/5/gi, replacement: 'customer favorite', reason: 'fake rating claim' }
-      ];
-
-      for (const item of prohibitedTerms) {
-        if (cleaned.match(item.pattern) && !userAndImageFactsText.includes(item.reason)) {
-          cleaned = cleaned.replace(item.pattern, item.replacement);
-          fieldWarnings.push(`Excluded unverified claim: ${item.reason}`);
-        }
-      }
-
-      return cleaned;
-    };
-
-    const warnings: string[] = Array.isArray(parsed.warnings) ? parsed.warnings : [];
-
-    if (type === 'listing' && parsed) {
-      if (parsed.title) parsed.title = sanitizeField(parsed.title, warnings);
-      if (parsed.fullDescription) parsed.fullDescription = sanitizeField(parsed.fullDescription, warnings);
-      if (parsed.shortDescription) parsed.shortDescription = sanitizeField(parsed.shortDescription, warnings);
-      if (Array.isArray(parsed.bulletPoints)) {
-        parsed.bulletPoints = parsed.bulletPoints.map((b: string) => sanitizeField(b, warnings));
-      }
-      if (Array.isArray(parsed.keyFeatures)) {
-        parsed.keyFeatures = parsed.keyFeatures.map((kf: string) => sanitizeField(kf, warnings));
-      }
-    } else if (type === 'social' && parsed) {
-      if (parsed.caption) parsed.caption = sanitizeField(parsed.caption, warnings);
-      if (parsed.hook) parsed.hook = sanitizeField(parsed.hook, warnings);
-    } else if (type === 'ad' && parsed) {
-      if (parsed.primaryText) parsed.primaryText = sanitizeField(parsed.primaryText, warnings);
-      if (parsed.headline) parsed.headline = sanitizeField(parsed.headline, warnings);
-      if (parsed.description) parsed.description = sanitizeField(parsed.description, warnings);
-    } else if (type === 'reply' && parsed) {
-      if (parsed.recommendedReply) parsed.recommendedReply = sanitizeField(parsed.recommendedReply, warnings);
-      if (parsed.politeAlternative) parsed.politeAlternative = sanitizeField(parsed.politeAlternative, warnings);
-    } else if (type === 'image' && parsed) {
-      if (parsed.prompt) parsed.prompt = sanitizeField(parsed.prompt, warnings);
+    const schemaCheck = schemaValidationService.validateSchema(parsed, normTypeEnum);
+    if (!schemaCheck.valid) {
+      console.error(`[Sellora Pipeline] Schema validation failed for productId="${productId}": ${schemaCheck.error}`);
+      return res.status(422).json({
+        success: false,
+        errorCode: 'SCHEMA_VALIDATION_FAILED',
+        message: schemaCheck.error || 'Output failed schema validation'
+      });
     }
 
-    parsed.warnings = Array.from(new Set([...warnings, ...qualityGateResult.warnings]));
+    let finalOutputObj = schemaCheck.normalizedData || parsed;
 
-    // STEP 6: Return Response with Quality Gate & Knowledge Layer Metadata
+    // STEP 7: Post-Generation Claim Validation Firewall
+    const claimResult = claimValidationService.validateClaims(finalOutputObj, canonicalPermittedFacts);
+    finalOutputObj = claimResult.sanitizedOutput;
+
+    if (!claimResult.passed) {
+      console.warn(`[Sellora Pipeline] Claim validation failed for productId="${productId}": ${claimResult.blockReason}`);
+      return res.status(422).json({
+        success: false,
+        errorCode: 'UNSUPPORTED_GENERATED_CLAIM',
+        message: claimResult.blockReason || 'Generated content contains unsupported factual claims',
+        rejectedClaims: claimResult.rejectedClaims
+      });
+    }
+
+    // STEP 8: Final Knowledge Quality Gate Audit
+    const finalGateResult = productKnowledgeService.evaluateQualityGate(knowledgeProfile);
+    if (!finalGateResult.passed && finalGateResult.prohibitedClaimsDetected.length > 0) {
+      return res.status(422).json({
+        success: false,
+        errorCode: 'QUALITY_GATE_REJECTED',
+        message: 'Content rejected by Quality Gate',
+        prohibitedClaims: finalGateResult.prohibitedClaimsDetected
+      });
+    }
+
+    const latencyMs = Date.now() - startTime;
+
+    // Observability Log
+    console.log(
+      `[Sellora Pipeline] SUCCESS productId="${productId}" contentType="${normTypeEnum}" permittedFacts=${canonicalPermittedFacts.length} detectedClaims=${claimResult.detectedClaims.length} rejectedClaims=${claimResult.rejectedClaims.length} qualityScore=${finalGateResult.qualityScore} latencyMs=${latencyMs}`
+    );
+
+    // Format output for backward compatibility with UI
+    const resultPayload: any = {};
+    if (normalizedTypeKey === 'listing') resultPayload.listing = finalOutputObj;
+    if (normalizedTypeKey === 'social') resultPayload.social = finalOutputObj;
+    if (normalizedTypeKey === 'ad') resultPayload.ad = finalOutputObj;
+    if (normalizedTypeKey === 'reply') resultPayload.reply = finalOutputObj;
+    if (normalizedTypeKey === 'image') resultPayload.image = finalOutputObj;
+
     return res.json({
       success: true,
       isRealAi: true,
-      aiStatusMessage: 'Real Gemini Content Generation (Knowledge-Driven Pipeline)',
-      textResponse: JSON.stringify(parsed),
+      aiStatusMessage: 'Real Gemini Content Generation (Production Pipeline)',
+      textResponse: JSON.stringify(finalOutputObj),
+      result: resultPayload,
       knowledgeProfile,
+      permittedFacts: canonicalPermittedFacts,
       qualityGate: {
-        passed: qualityGateResult.passed,
-        qualityScore: qualityGateResult.qualityScore,
-        permittedFactsCount: permittedFacts.length,
-        blockedFactsCount: qualityGateResult.blockedFacts.length,
-        warnings: qualityGateResult.warnings,
-        prohibitedClaimsDetected: qualityGateResult.prohibitedClaimsDetected
+        passed: finalGateResult.passed,
+        qualityScore: finalGateResult.qualityScore,
+        permittedFactsCount: canonicalPermittedFacts.length,
+        blockedFactsCount: finalGateResult.blockedFacts.length,
+        warnings: Array.from(new Set([...finalGateResult.warnings, ...claimResult.warnings])),
+        prohibitedClaimsDetected: finalGateResult.prohibitedClaimsDetected
       }
     });
   } catch (err: any) {
-    console.error('[Sellora Server] Gemini Generation error:', err?.message || err);
+    const errMsg = err?.message || String(err);
+    console.error(`[Sellora Pipeline] Generation error for productId="${productId}": ${errMsg}`);
+
+    let errorCode = 'GENERATION_FAILED';
+    if (errMsg.includes('429') || errMsg.includes('Quota')) errorCode = 'RATE_LIMIT';
+    if (errMsg.includes('connect') || errMsg.includes('fetch failed')) errorCode = 'NETWORK_ERROR';
+
     return res.status(500).json({
       success: false,
       isRealAi: false,
-      message: 'Gemini AI is currently unavailable.',
-      diagnostic: err?.message || String(err)
+      errorCode,
+      message: 'Content generation failed',
+      diagnostic: errMsg
     });
   }
 });

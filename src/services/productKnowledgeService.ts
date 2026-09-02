@@ -12,7 +12,8 @@ import {
   NormalizedFact,
   EvidenceSource,
   EvidenceReference,
-  NormalizedProductIdentity
+  NormalizedProductIdentity,
+  PermittedFact
 } from '../types';
 import { knowledgeQualityGate } from './knowledgeQualityGate';
 import { sourceQualityService } from './sourceQualityService';
@@ -409,5 +410,49 @@ export const productKnowledgeService = {
   getPermittedFacts(profile: ProductKnowledgeProfile): KnowledgeFact[] {
     const gate = knowledgeQualityGate.evaluate(profile);
     return gate.permittedFacts;
+  },
+
+  /**
+   * Gets canonical PermittedFact objects with provenance and verification status.
+   */
+  getCanonicalPermittedFacts(profile: ProductKnowledgeProfile): PermittedFact[] {
+    const gate = knowledgeQualityGate.evaluate(profile);
+    return gate.permittedFacts.map((f): PermittedFact => {
+      const confidenceNum =
+        f.confidence === 'HIGH' ? 95 : f.confidence === 'MEDIUM' ? 75 : f.confidence === 'LOW' ? 40 : 80;
+
+      let verificationStatus: PermittedFact['verificationStatus'] = 'UNVERIFIED';
+      if (f.provenance === 'USER_PROVIDED' || f.status === 'USER_PROVIDED') {
+        verificationStatus = 'USER_PROVIDED';
+      } else if (f.verificationStatus) {
+        verificationStatus = f.verificationStatus;
+      } else if (f.provenance === 'VERIFIED' || f.status === 'VERIFIED') {
+        verificationStatus = 'VERIFIED';
+      } else if (f.status === 'OBSERVED') {
+        verificationStatus = 'PARTIALLY_VERIFIED';
+      }
+
+      const evidenceIds: string[] = [];
+      if (f.evidenceReferences && f.evidenceReferences.length > 0) {
+        f.evidenceReferences.forEach((ref) => {
+          if (ref.sourceId) evidenceIds.push(ref.sourceId);
+        });
+      }
+      if (f.evidence?.sourceId && !evidenceIds.includes(f.evidence.sourceId)) {
+        evidenceIds.push(f.evidence.sourceId);
+      }
+
+      return {
+        id: f.id,
+        name: f.name,
+        value: f.value,
+        category: f.category,
+        provenance: f.provenance,
+        verificationStatus,
+        confidence: confidenceNum,
+        evidenceIds,
+        generationAllowed: true
+      };
+    });
   }
 };
