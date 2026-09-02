@@ -387,8 +387,6 @@ function sanitizeProductIntelligenceResponse(raw: any, product: any, groundingCh
     });
   }
 
-  const defaultSource = sources[0] || null;
-
   const formattedPrice =
     typeof product.price === 'number'
       ? `${product.currency || '$'}${product.price.toFixed(2)}`
@@ -447,9 +445,9 @@ function sanitizeProductIntelligenceResponse(raw: any, product: any, groundingCh
 
   rawVerified.forEach((f: any) => {
     if (f && typeof f.value === 'string' && f.value.trim() && f.value !== 'Not verified') {
-      const srcUrl = f.sourceUrl || (defaultSource ? defaultSource.url : '');
-      const srcTitle = f.sourceTitle || (defaultSource ? defaultSource.title : '');
-      const srcPublisher = f.publisher || (defaultSource ? defaultSource.publisher : 'Public Web Source');
+      const srcUrl = typeof f.sourceUrl === 'string' ? f.sourceUrl.trim() : '';
+      const srcTitle = typeof f.sourceTitle === 'string' ? f.sourceTitle.trim() : '';
+      const srcPublisher = typeof f.publisher === 'string' ? f.publisher.trim() : 'Public Web Source';
 
       if (srcUrl || srcTitle) {
         verifiedFacts.push({
@@ -529,7 +527,7 @@ function sanitizeProductIntelligenceResponse(raw: any, product: any, groundingCh
           userValue: String(c.userValue || 'Not specified'),
           researchedValue: String(c.researchedValue || 'Not specified'),
           description: String(c.description || 'Conflict between user input and researched data'),
-          source: c.sourceUrl ? { title: c.sourceTitle || 'Web Source', url: c.sourceUrl, publisher: 'Web' } : defaultSource
+          source: c.sourceUrl ? { title: c.sourceTitle || 'Web Source', url: c.sourceUrl, publisher: 'Web' } : null
         });
       }
     });
@@ -815,7 +813,9 @@ function sanitizeProductPayload(product: any) {
     tags: Array.isArray(product.tags) ? product.tags.filter((t: any) => typeof t === 'string') : [],
     targetAudience: typeof product.targetAudience === 'string' ? product.targetAudience : null,
     usp: typeof product.usp === 'string' ? product.usp : null,
-    facts: Array.isArray(product.facts) ? product.facts : []
+    facts: Array.isArray(product.facts) ? product.facts : [],
+    status: product.status || 'ACTIVE',
+    lastUpdated: product.lastUpdated || new Date().toISOString()
   };
 }
 

@@ -40,7 +40,7 @@ export function createProductKnowledgeProfile(
   const timestamp = Date.now();
   const profileId = product.id || `prod-${timestamp}`;
 
-  const universalIntel = intelligence?.universalProfile;
+  const universalIntel = intelligence?.universalProfile || (intelligence as any);
 
   // 1. Core Identity Facts
   const productNameFact: KnowledgeFact = {
@@ -252,8 +252,11 @@ export function createProductKnowledgeProfile(
         normalizedIdentity
       );
 
-      verifiedFacts.push(evalRes.updatedFact);
-      researchedFacts.push(evalRes.updatedFact);
+      if (evalRes.updatedFact.isPermittedForGeneration && (evalRes.updatedFact.verificationStatus === 'VERIFIED' || evalRes.updatedFact.verificationStatus === 'USER_PROVIDED')) {
+        verifiedFacts.push(evalRes.updatedFact);
+      } else {
+        researchedFacts.push(evalRes.updatedFact);
+      }
       allEvidenceReferences.push(...evalRes.evidenceReferences);
       conflicts.push(...evalRes.conflicts);
     });
@@ -367,6 +370,7 @@ export function createProductKnowledgeProfile(
 }
 
 export const productKnowledgeService = {
+  createProductKnowledgeProfile,
   /**
    * Retrieves or creates a Product Knowledge Profile with caching & freshness handling.
    */

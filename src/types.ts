@@ -212,17 +212,18 @@ export interface EvidenceSource {
   id: string;
   url: string;
   title: string;
-  domain: string;
+  domain?: string;
   publisher?: string;
-  sourceType: EvidenceSourceType;
+  sourceType?: EvidenceSourceType;
   authorityScore: number;   // 0-100
-  relevanceScore: number;   // 0-100
-  freshnessScore: number;   // 0-100
-  reliabilityScore: number; // 0-100
-  overallScore: number;     // 0-100
+  relevanceScore?: number;   // 0-100
+  freshnessScore?: number;   // 0-100
+  reliabilityScore?: number; // 0-100
+  overallScore?: number;     // 0-100
   productMatch: ProductMatchLevel;
-  retrievedAt: string;
+  retrievedAt?: string;
   supportingText?: string;
+  reputation?: string;
 }
 
 export type SupportLevel = 'DIRECT' | 'PARTIAL' | 'INDIRECT' | 'CONTRADICTORY';
@@ -264,7 +265,7 @@ export interface NormalizedProductIdentity {
   reasoning?: string;
 }
 
-export type FactVerificationStatus = 'UNVERIFIED' | 'PARTIALLY_VERIFIED' | 'VERIFIED' | 'CONTRADICTED';
+export type FactVerificationStatus = 'UNVERIFIED' | 'PARTIALLY_VERIFIED' | 'VERIFIED' | 'CONTRADICTED' | 'USER_PROVIDED';
 
 export interface KnowledgeSourceEvidence {
   sourceUrl?: string;
@@ -284,15 +285,15 @@ export interface KnowledgeFact {
   id: string;
   name: string;
   value: string;
-  category: string; // e.g. 'Identity', 'Material', 'Dimension', 'Performance', 'Compatibility', 'Care', etc.
+  category?: string; // e.g. 'Identity', 'Material', 'Dimension', 'Performance', 'Compatibility', 'Care', etc.
   provenance: KnowledgeProvenance;
   confidence: KnowledgeConfidence;
   evidence?: KnowledgeSourceEvidence;
   evidenceReferences?: EvidenceReference[];
   verificationStatus?: FactVerificationStatus;
   lastVerifiedAt?: string;
-  status: 'VERIFIED' | 'OBSERVED' | 'USER_PROVIDED' | 'INFERRED' | 'UNKNOWN' | 'CONFLICTING';
-  isPermittedForGeneration: boolean;
+  status: 'VERIFIED' | 'OBSERVED' | 'USER_PROVIDED' | 'INFERRED' | 'UNKNOWN' | 'CONFLICTING' | 'UNVERIFIED';
+  isPermittedForGeneration?: boolean;
   reasonIfNotPermitted?: string;
 }
 
@@ -497,20 +498,21 @@ export interface ProductIntelligence {
 export interface Product {
   id: string;
   name: string;
-  category: string;
-  status: ProductStatus;
-  price: number;
-  currency: string;
-  image: string;
-  description: string;
+  category?: string;
+  status?: ProductStatus | string;
+  price?: number;
+  currency?: string;
+  image?: string;
+  description?: string;
   features?: string[];
   tags?: string[];
   targetAudience?: string;
   usp?: string; // Unique Selling Proposition
-  lastUpdated: string;
+  lastUpdated?: string;
   aiContentCount?: number;
   productIntelligence?: ProductIntelligence;
   knowledgeProfile?: ProductKnowledgeProfile;
+  [key: string]: any;
 }
 
 export interface PermittedFact {
@@ -565,7 +567,59 @@ export type GenerationErrorCode =
   | 'API_KEY_MISSING'
   | 'RATE_LIMIT'
   | 'NETWORK_ERROR'
-  | 'INVALID_RESPONSE';
+  | 'INVALID_RESPONSE'
+  | 'PROMPT_INJECTION_DETECTED'
+  | 'UNSUPPORTED_CLAIM'
+  | 'CRITICAL_CLAIM_REJECTED'
+  | 'NUMERIC_MISMATCH'
+  | 'UNIT_MISMATCH'
+  | 'CONFLICTED_CLAIM'
+  | 'SEMANTIC_SUPPORT_INSUFFICIENT'
+  | 'OUTPUT_CLAIM_VALIDATION_FAILED';
+
+export type ClaimCategory =
+  | 'IDENTITY'
+  | 'SPECIFICATION'
+  | 'DIMENSION'
+  | 'WEIGHT'
+  | 'CAPACITY'
+  | 'BATTERY'
+  | 'COMPATIBILITY'
+  | 'MATERIAL'
+  | 'PERFORMANCE'
+  | 'CERTIFICATION'
+  | 'WARRANTY'
+  | 'SHIPPING'
+  | 'PRICING'
+  | 'DISCOUNT'
+  | 'RATING'
+  | 'SOCIAL_PROOF'
+  | 'SAFETY'
+  | 'MEDICAL'
+  | 'OTHER';
+
+export type ClaimSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+
+export type ClaimValidationStatus =
+  | 'SUPPORTED'
+  | 'UNSUPPORTED'
+  | 'CONFLICTED'
+  | 'AMBIGUOUS'
+  | 'NON_FACTUAL';
+
+export interface ExtractedClaim {
+  id: string;
+  text: string;
+  category: ClaimCategory;
+  severity: ClaimSeverity;
+  normalizedValue?: number;
+  unit?: string;
+  rawUnit?: string;
+  sourceField?: string;
+  evidenceFactIds?: string[];
+  validationStatus: ClaimValidationStatus;
+  reason?: string;
+}
 
 export interface GenerationInputContract {
   productId: string;

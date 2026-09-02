@@ -66,8 +66,14 @@ export const knowledgeQualityGate = {
       let permitted = true;
       let blockReason = '';
 
+      // Rule 0: Facts explicitly marked non-permitted or UNVERIFIED must be blocked
+      if (fact.isPermittedForGeneration === false || fact.status === 'UNVERIFIED' || fact.verificationStatus === 'UNVERIFIED') {
+        permitted = false;
+        blockReason = fact.reasonIfNotPermitted || 'Unverified fact blocked from factual generation';
+      }
+
       // Rule 1: INFERRED facts must NEVER silently pass as verified
-      if (fact.provenance === 'INFERRED' || fact.status === 'INFERRED') {
+      else if (fact.provenance === 'INFERRED' || fact.status === 'INFERRED') {
         permitted = false;
         blockReason = 'AI inferred assumption blocked from factual generation';
       }
