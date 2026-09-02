@@ -329,6 +329,8 @@ export const mockAiService = {
             platform,
             isRealAi: true,
             aiStatusMessage: data.aiStatusMessage || 'Real Gemini Content Generation',
+            knowledgeProfile: data.knowledgeProfile,
+            qualityGate: data.qualityGate,
             result: {
               [type]: parsed
             } as any

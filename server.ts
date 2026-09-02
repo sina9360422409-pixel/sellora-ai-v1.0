@@ -1162,7 +1162,129 @@ RESEARCH & VERIFICATION INSTRUCTIONS:
   }
 });
 
-// 2. Content Generation Endpoint (Listing, Social, Ad, Reply)
+// Server-side Quality Gate Evaluator for Knowledge Layer
+function evaluateServerQualityGate(profile: any) {
+  const permittedFacts: any[] = [];
+  const blockedFacts: any[] = [];
+  const warnings: string[] = [];
+  const prohibitedClaimsDetected: string[] = [];
+
+  const allFacts: any[] = [
+    ...(profile.userProvidedFacts || []),
+    ...(profile.observedFacts || []),
+    ...(profile.verifiedFacts || []),
+    ...(profile.researchedFacts || []),
+    ...(profile.inferredFacts || []),
+    ...(profile.potentialAssumptions || [])
+  ];
+
+  const groundTruthText = (profile.userProvidedFacts || [])
+    .map((f: any) => `${f.name || ''} ${f.value || ''}`.toLowerCase())
+    .concat((profile.verifiedFacts || []).map((f: any) => `${f.name || ''} ${f.value || ''}`.toLowerCase()))
+    .join(' ');
+
+  const unresolvedConflicts: any[] = (profile.conflicts || []).filter(
+    (c: any) => c.status === 'OPEN_CONFLICT' || !c.status
+  );
+
+  if (unresolvedConflicts.length > 0) {
+    unresolvedConflicts.forEach((c: any) => {
+      warnings.push(`Open conflict in field "${c.field}": User says "${c.userValue}", research says "${c.researchedValue}". Flagged for review.`);
+    });
+  }
+
+  const PROHIBITED_PATTERNS = [
+    { pattern: /warranty/i, term: 'warranty terms', category: 'Guarantee/Warranty' },
+    { pattern: /guarantee/i, term: 'money-back guarantee', category: 'Guarantee/Warranty' },
+    { pattern: /30-day/i, term: '30-day trial/return', category: 'Return Policy' },
+    { pattern: /return policy/i, term: 'return policy details', category: 'Return Policy' },
+    { pattern: /shipping time/i, term: 'shipping time promises', category: 'Shipping' },
+    { pattern: /worldwide shipping/i, term: 'worldwide shipping claim', category: 'Shipping' },
+    { pattern: /same-day dispatch/i, term: 'same-day dispatch', category: 'Shipping' },
+    { pattern: /discount/i, term: 'unverified discount percentage', category: 'Pricing' },
+    { pattern: /reviews/i, term: 'fake review count', category: 'Social Proof' },
+    { pattern: /ratings/i, term: 'fake star rating', category: 'Social Proof' },
+    { pattern: /sold/i, term: 'fake sales volume statistics', category: 'Social Proof' },
+    { pattern: /military-grade/i, term: 'military-grade rating', category: 'Spec Claim' },
+    { pattern: /ip68/i, term: 'IP68 waterproof rating', category: 'Spec Claim' },
+    { pattern: /magsafe/i, term: 'MagSafe compatibility', category: 'Spec Claim' },
+    { pattern: /medical/i, term: 'medical/health claim', category: 'Safety Claim' }
+  ];
+
+  allFacts.forEach((fact: any) => {
+    let permitted = true;
+    let blockReason = '';
+
+    if (fact.provenance === 'INFERRED' || fact.status === 'INFERRED') {
+      permitted = false;
+      blockReason = 'AI inferred assumption blocked from factual generation';
+    } else if (fact.confidence === 'LOW' && !fact.evidence?.sourceUrl) {
+      permitted = false;
+      blockReason = 'Low confidence fact without verified source evidence';
+    } else if (unresolvedConflicts.some((c: any) => c.field?.toLowerCase() === fact.name?.toLowerCase())) {
+      permitted = false;
+      blockReason = `Unresolved conflict in field "${fact.name}"`;
+    } else {
+      for (const item of PROHIBITED_PATTERNS) {
+        if (item.pattern.test(`${fact.name || ''} ${fact.value || ''}`)) {
+          const isExplicitInUserOrVerified = groundTruthText.includes(item.term.toLowerCase()) ||
+            (fact.provenance === 'USER_PROVIDED' || (fact.provenance === 'VERIFIED' && Boolean(fact.evidence?.sourceUrl)));
+
+          if (!isExplicitInUserOrVerified) {
+            permitted = false;
+            blockReason = `Unverified ${item.category} claim (${item.term}) blocked by Quality Gate`;
+            if (!prohibitedClaimsDetected.includes(item.term)) {
+              prohibitedClaimsDetected.push(item.term);
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    const updatedFact = {
+      ...fact,
+      isPermittedForGeneration: permitted,
+      reasonIfNotPermitted: permitted ? undefined : blockReason
+    };
+
+    if (permitted) {
+      const isDuplicate = permittedFacts.some(
+        (p) => p.name?.toLowerCase() === updatedFact.name?.toLowerCase() && p.value?.toLowerCase() === updatedFact.value?.toLowerCase()
+      );
+      if (!isDuplicate) {
+        permittedFacts.push(updatedFact);
+      }
+    } else {
+      blockedFacts.push(updatedFact);
+    }
+  });
+
+  let qualityScore = 100;
+  if (unresolvedConflicts.length > 0) qualityScore -= unresolvedConflicts.length * 15;
+  if (prohibitedClaimsDetected.length > 0) qualityScore -= prohibitedClaimsDetected.length * 10;
+  const unknownCount = Array.isArray(profile.unknownFacts) ? profile.unknownFacts.length : 0;
+  if (unknownCount > 0) qualityScore -= Math.min(20, unknownCount * 4);
+  qualityScore = Math.max(20, Math.min(100, qualityScore));
+
+  const passed = qualityScore >= 60 && unresolvedConflicts.length === 0;
+
+  if (unknownCount > 0) {
+    warnings.push(`${unknownCount} product specifications remain unknown and will be handled defensively.`);
+  }
+
+  return {
+    passed,
+    permittedFacts,
+    blockedFacts,
+    unresolvedConflicts,
+    warnings: Array.from(new Set(warnings)),
+    qualityScore,
+    prohibitedClaimsDetected
+  };
+}
+
+// 2. Knowledge-Driven Content Generation Endpoint (Listing, Social, Ad, Image, Reply)
 app.post('/api/generate-content', async (req, res) => {
   const {
     product: rawProduct,
@@ -1195,21 +1317,48 @@ app.post('/api/generate-content', async (req, res) => {
   try {
     const imagePart = await getImagePart(product.image);
 
+    // STEP 1: Retrieve or construct ProductKnowledgeProfile (Authoritative Knowledge Layer)
+    let knowledgeProfile = rawProduct.knowledgeProfile || rawProduct.productIntelligence?.knowledgeProfile;
+    if (!knowledgeProfile || typeof knowledgeProfile !== 'object') {
+      knowledgeProfile = buildServerProductKnowledgeProfile(product, rawProduct.productIntelligence?.universalProfile);
+    }
+
+    // STEP 2: Evaluate Quality Gate (Enforcement Firewall)
+    const qualityGateResult = evaluateServerQualityGate(knowledgeProfile);
+    const permittedFacts = qualityGateResult.permittedFacts;
+
+    // STEP 3: Format Knowledge Layer Context for Content Generation
     const formattedPrice = typeof product.price === 'number'
       ? `${product.currency || '$'}${product.price.toFixed(2)}`
       : `${product.currency || '$'}${product.price || '0.00'}`;
 
-    const userDescription = product.description || 'None provided';
-    const featuresList = Array.isArray(product.features) && product.features.length > 0
-      ? product.features.join('; ')
-      : 'None provided';
-    const usp = product.usp || 'None provided';
-    const targetAudience = product.targetAudience || 'General ecommerce buyers';
+    let permittedFactsContext = '';
+    if (permittedFacts && permittedFacts.length > 0) {
+      permittedFactsContext = permittedFacts
+        .map((f: any) => `- [${f.provenance || 'VERIFIED'}] ${f.name}: ${f.value}`)
+        .join('\n');
+    } else {
+      permittedFactsContext = `- Product Name: ${product.name}\n- Category: ${product.category}\n- Listed Price: ${formattedPrice}`;
+    }
 
-    // Build structured facts list
-    let factsContext = '';
-    if (product.facts && Array.isArray(product.facts) && product.facts.length > 0) {
-      factsContext = product.facts.map((f: any) => `- [${f.sourceType || 'FACT'}] ${f.fact || f.name || ''}: ${f.value || ''}`).join('\n');
+    const unknownFactsList = knowledgeProfile.unknownFacts || [];
+    let unknownFactsContext = '';
+    if (unknownFactsList.length > 0) {
+      unknownFactsContext = unknownFactsList
+        .map((u: any) => `- ${typeof u === 'string' ? u : u.name}: UNKNOWN (${u.reason || 'Unverified'}). Do NOT claim or fabricate.`)
+        .join('\n');
+    } else {
+      unknownFactsContext = '- Warranty, shipping timeline, return policy, and exact lab ratings are UNKNOWN. Do NOT fabricate.';
+    }
+
+    const conflictsList = qualityGateResult.unresolvedConflicts || [];
+    let conflictsContext = '';
+    if (conflictsList.length > 0) {
+      conflictsContext = conflictsList
+        .map((c: any) => `- Open Conflict on ${c.field}: User provided "${c.userValue}", Research found "${c.researchedValue}". Avoid single definitive claims.`)
+        .join('\n');
+    } else {
+      conflictsContext = 'No open factual conflicts.';
     }
 
     const toneGuide: Record<string, string> = {
@@ -1232,46 +1381,41 @@ app.post('/api/generate-content', async (req, res) => {
     const selectedGoalGuide = goalGuide[goal] || goalGuide['More Sales'];
 
     const specialInstructionsText = customPrompt && typeof customPrompt === 'string' && customPrompt.trim()
-      ? `SPECIAL USER INSTRUCTIONS:\n"${customPrompt.trim()}"\n- Adhere strictly to these instructions (e.g. language preference, length, emoji usage, specific emphasis) unless they conflict with truthfulness rules.`
+      ? `SPECIAL USER INSTRUCTIONS:\n"${customPrompt.trim()}"\n- Adhere strictly to these instructions unless they conflict with truthfulness rules.`
       : '';
 
     const regenerationText = isRegeneration
-      ? `REGENERATION VARIATION (Seed: ${variationSeed || Date.now()}): Generate a distinct, creative variation of the copy while maintaining the same product facts, tone, goal, and special instructions.`
+      ? `REGENERATION VARIATION (Seed: ${variationSeed || Date.now()}): Generate a distinct variation while maintaining permitted facts, tone, and goal.`
       : '';
 
+    // STEP 4: Build System Instruction with Strict Knowledge Layer Enforcement
     const systemInstruction = `You are Sellora AI's Professional Ecommerce Copywriter & Content Generator.
+You operate on Sellora's Knowledge-Driven Content Generation Architecture.
 
-STRICT TRUTHFULNESS & ANTI-HALLUCINATION MANDATE:
-1. Ground ALL factual statements strictly in the provided product details:
-   - Product Name: ${product.name}
-   - Category: ${product.category}
-   - Listed Price: ${formattedPrice}
-   - User Provided Description: ${userDescription}
-   - Provided Features: ${featuresList}
-   - Unique Selling Proposition: ${usp}
-   - Target Audience: ${targetAudience}
-   ${factsContext ? `\nAdditional Verified Facts:\n${factsContext}` : ''}
+KNOWLEDGE LAYER & FACTUAL SAFETY FIREWALL:
+All factual statements MUST be strictly grounded in the PERMITTED FACTS below.
+The Quality Gate has audited this product profile and filtered out unverified, inferred, or conflicting claims.
 
-2. CREATIVE STYLE vs FACTUAL ACCURACY:
-   - YOU MAY use creative, persuasive marketing language to match the requested Tone ("${tone}") and Goal ("${goal}").
-   - Examples of allowed stylistic expressions: "designed for a modern aesthetic", "crafted for effortless daily style", "a refined accessory".
-   - YOU MUST NOT INVENT FACTUAL CLAIMS or TECHNICAL SPECS that were not explicitly provided in the product details above or clearly visible in the product image.
-   - STRICTLY FORBIDDEN UNLESS EXPLICITLY PROVIDED IN USER TEXT/IMAGE:
-     * Warranty terms (e.g., "2-year warranty", "lifetime guarantee")
-     * Return policy or money-back guarantees (e.g., "30-day money-back guarantee", "risk-free trial")
-     * Shipping promises or timelines (e.g., "fast worldwide shipping", "free express shipping", "same-day dispatch")
-     * Technical specs / materials (e.g., "aerospace aluminum", "military-grade TPU", "MagSafe compatible", "shockproof", "20h battery life", "waterproof IP68")
-     * Social proof / fake stats (e.g., "10,000+ sold", "4.9/5 stars", "verified customer favorite", "award-winning")
+PERMITTED PRODUCT FACTS (AUTHORITATIVE & VERIFIED):
+${permittedFactsContext}
 
-3. TONE INSTRUCTION (${tone}):
-   ${selectedToneGuide}
+UNKNOWN FACTS & SPECIFICATIONS (STRICTLY DO NOT FABRICATE):
+${unknownFactsContext}
 
-4. CAMPAIGN GOAL INSTRUCTION (${goal}):
-   ${selectedGoalGuide}
+FACTUAL CONFLICTS & WARNINGS:
+${conflictsContext}
 
-5. LANGUAGE & FORMAT RULES:
-   - If special instructions or user input are written in or explicitly request a specific language (e.g. Persian, Spanish, French, German), generate the ENTIRE content in that requested language.
-   - Do NOT translate brand names or product names unless explicitly requested.
+STRICT GENERATION RULES:
+1. TRUTHFUL GROUNDING ONLY:
+   - YOU MUST NOT invent technical specs, materials, battery capacity, IP ratings, warranties, return policies, shipping promises, certifications, or fake customer numbers.
+   - For unknown attributes, either omit them or use general, non-factual marketing phrasing (e.g. "crafted for everyday style").
+2. CREATIVE MARKETING STYLE ("${tone}") & GOAL ("${goal}"):
+   - Match requested Tone ("${tone}") and Campaign Goal ("${goal}").
+   - Styling MUST NOT convert an unknown attribute into a factual spec.
+3. CUSTOMER REPLIES (Format "reply"):
+   - If a customer inquires about an attribute listed under UNKNOWN FACTS (e.g., warranty, shipping timeline, or return policy), explicitly and politely state that specific terms are not currently specified, and advise contacting customer support directly.
+4. LANGUAGE PREFERENCE:
+   - If special instructions request a specific language, generate the ENTIRE response in that requested language while preserving product/brand names.
 
 JSON OUTPUT FORMAT REQUIREMENT:
 You MUST respond with valid JSON matching the requested structure for format "${type}".
@@ -1279,11 +1423,11 @@ You MUST respond with valid JSON matching the requested structure for format "${
 For format "listing":
 {
   "contentType": "listing",
-  "title": "Clean, persuasive, high-converting product title based strictly on name, price, category, and tone",
-  "shortDescription": "Concise product summary grounded strictly in provided facts",
+  "title": "Clean, persuasive product title grounded strictly in permitted facts",
+  "shortDescription": "Concise product summary grounded strictly in permitted facts",
   "bulletPoints": ["Factual bullet point 1", "Factual bullet point 2", "Factual bullet point 3"],
   "keyFeatures": ["Key feature 1 grounded in facts", "Key feature 2 grounded in facts"],
-  "fullDescription": "Persuasive full description reflecting selected tone and goal without inventing fake specs, fake guarantees, or fake shipping terms",
+  "fullDescription": "Persuasive full description reflecting selected tone and goal without inventing fake specs, warranties, or shipping promises",
   "seoKeywords": ["relevant keyword 1", "relevant keyword 2"],
   "callToAction": "Clear call to action",
   "warnings": []
@@ -1294,7 +1438,7 @@ For format "social":
   "contentType": "social",
   "platform": "${platform || 'Instagram'}",
   "hook": "Engaging social hook matching tone and goal",
-  "caption": "Platform-appropriate caption grounded strictly in provided facts",
+  "caption": "Platform-appropriate caption grounded strictly in permitted facts",
   "hashtags": ["#tag1", "#tag2"],
   "callToAction": "Call to action",
   "mediaSuggestion": "Creative visual or video concept idea",
@@ -1318,17 +1462,28 @@ For format "reply":
 {
   "contentType": "reply",
   "customerInquiry": "${customerInquiry || 'General Inquiry'}",
-  "recommendedReply": "Factual, polite response stating strictly known details. If customer asks about unverified details (like warranty or shipping), state honestly that details are not currently specified.",
+  "recommendedReply": "Factual, polite response stating strictly permitted details. If customer asks about unverified details (like warranty or shipping), state honestly that details are not currently specified.",
   "politeAlternative": "Polite alternative response option",
+  "warnings": []
+}
+
+For format "image":
+{
+  "contentType": "image",
+  "style": "${imageStyle || 'Studio'}",
+  "aspectRatio": "${aspectRatio || '1:1'}",
+  "prompt": "Detailed commercial photo generation prompt describing visual characteristics strictly grounded in permitted facts",
+  "negativePrompt": "blurry, low quality, distorted text, unverified logos",
+  "lighting": "Studio lighting concept",
+  "background": "Background description matching product tone",
+  "composition": "Framing and composition notes",
   "warnings": []
 }`;
 
-    const prompt = `Generate ${type.toUpperCase()} copy for:
+    const prompt = `Generate ${type.toUpperCase()} content for:
 Product Name: ${product.name}
 Category: ${product.category}
 Price: ${formattedPrice}
-Description: ${userDescription}
-Features: ${featuresList}
 Tone: ${tone}
 Goal: ${goal}
 Platform: ${platform || 'General'}
@@ -1337,7 +1492,7 @@ Customer Inquiry: ${customerInquiry || 'N/A'}
 ${specialInstructionsText}
 ${regenerationText}
 
-Remember: NO fake claims, NO fake warranties, NO fake shipping terms, NO fake reviews. Ground strictly in provided product facts while using persuasive style for tone "${tone}".`;
+Remember: NO fake claims, NO fake warranties, NO fake shipping terms, NO fake reviews. Ground strictly in PERMITTED FACTS while applying persuasive tone "${tone}".`;
 
     const contents: any = [];
     if (imagePart) contents.push(imagePart);
@@ -1368,14 +1523,13 @@ Remember: NO fake claims, NO fake warranties, NO fake shipping terms, NO fake re
       });
     }
 
-    // Server-side Compliance Validation & Sanitization
-    const userAndImageFacts = `${product.name} ${product.description || ''} ${(product.features || []).join(' ')} ${product.usp || ''}`.toLowerCase();
+    // STEP 5: Post-Generation Compliance Audit & Sanitization
+    const userAndImageFactsText = `${product.name} ${product.description || ''} ${(product.features || []).join(' ')} ${product.usp || ''}`.toLowerCase();
 
     const sanitizeField = (inputStr: string, fieldWarnings: string[]): string => {
       if (!inputStr || typeof inputStr !== 'string') return inputStr;
       let cleaned = inputStr;
 
-      // Unverified claim terms to flag unless present in user text
       const prohibitedTerms: { pattern: RegExp; replacement: string; reason: string }[] = [
         { pattern: /30-day money-back guarantee/gi, replacement: 'standard customer support', reason: 'money-back guarantee' },
         { pattern: /2-year (manufacturer )?warranty/gi, replacement: 'quality assurance', reason: 'warranty timeline' },
@@ -1389,7 +1543,7 @@ Remember: NO fake claims, NO fake warranties, NO fake shipping terms, NO fake re
       ];
 
       for (const item of prohibitedTerms) {
-        if (cleaned.match(item.pattern) && !userAndImageFacts.includes(item.reason)) {
+        if (cleaned.match(item.pattern) && !userAndImageFactsText.includes(item.reason)) {
           cleaned = cleaned.replace(item.pattern, item.replacement);
           fieldWarnings.push(`Excluded unverified claim: ${item.reason}`);
         }
@@ -1420,15 +1574,27 @@ Remember: NO fake claims, NO fake warranties, NO fake shipping terms, NO fake re
     } else if (type === 'reply' && parsed) {
       if (parsed.recommendedReply) parsed.recommendedReply = sanitizeField(parsed.recommendedReply, warnings);
       if (parsed.politeAlternative) parsed.politeAlternative = sanitizeField(parsed.politeAlternative, warnings);
+    } else if (type === 'image' && parsed) {
+      if (parsed.prompt) parsed.prompt = sanitizeField(parsed.prompt, warnings);
     }
 
-    parsed.warnings = Array.from(new Set(warnings));
+    parsed.warnings = Array.from(new Set([...warnings, ...qualityGateResult.warnings]));
 
+    // STEP 6: Return Response with Quality Gate & Knowledge Layer Metadata
     return res.json({
       success: true,
       isRealAi: true,
-      aiStatusMessage: 'Real Gemini Content Generation (gemini-3.6-flash)',
-      textResponse: JSON.stringify(parsed)
+      aiStatusMessage: 'Real Gemini Content Generation (Knowledge-Driven Pipeline)',
+      textResponse: JSON.stringify(parsed),
+      knowledgeProfile,
+      qualityGate: {
+        passed: qualityGateResult.passed,
+        qualityScore: qualityGateResult.qualityScore,
+        permittedFactsCount: permittedFacts.length,
+        blockedFactsCount: qualityGateResult.blockedFacts.length,
+        warnings: qualityGateResult.warnings,
+        prohibitedClaimsDetected: qualityGateResult.prohibitedClaimsDetected
+      }
     });
   } catch (err: any) {
     console.error('[Sellora Server] Gemini Generation error:', err?.message || err);

@@ -464,6 +464,8 @@ export interface GeneratedContent {
   platform?: string;
   isRealAi?: boolean;
   aiStatusMessage?: string;
+  knowledgeProfile?: ProductKnowledgeProfile;
+  qualityGate?: QualityGateResult | any;
   error?: {
     type: string;
     message: string;
