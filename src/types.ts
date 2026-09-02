@@ -92,7 +92,7 @@ export interface DetailedAnalysisData {
 // PRODUCT INTELLIGENCE RESEARCH ENGINE MODEL (PHASE 1)
 // ==================================================
 
-export type CanonicalSourceType = 'OBSERVED' | 'USER_PROVIDED' | 'VERIFIED' | 'UNKNOWN';
+export type FactSourceType = 'OBSERVED' | 'USER_PROVIDED' | 'VERIFIED' | 'UNKNOWN';
 export type FactConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'NOT_APPLICABLE';
 export type ResearchStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'PARTIAL' | 'FAILED' | 'NO_RELIABLE_SOURCE';
 
@@ -107,7 +107,7 @@ export interface FactSourceRef {
 export interface NormalizedFact {
   name: string;
   value: string;
-  sourceType: CanonicalSourceType;
+  sourceType: FactSourceType;
   confidence: FactConfidence;
   source?: FactSourceRef | null;
   evidence?: string;
@@ -173,12 +173,32 @@ export type KnowledgeConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 // ==================================================
 // PHASE 3 — EVIDENCE & SOURCE INTELLIGENCE MODEL
 // ==================================================
+// PHASE 3 — EVIDENCE & SOURCE INTELLIGENCE MODEL
+// ==================================================
+
+export type CanonicalSourceType =
+  | 'OFFICIAL_MANUFACTURER'
+  | 'OFFICIAL_DOCUMENTATION'
+  | 'AUTHORIZED_RETAILER'
+  | 'REPUTABLE_REVIEW'
+  | 'REPUTABLE_DATABASE'
+  | 'SPECIALIZED_PUBLICATION'
+  | 'GENERAL_PUBLICATION'
+  | 'MARKETPLACE'
+  | 'USER_GENERATED'
+  | 'UNKNOWN';
 
 export type EvidenceSourceType =
   | 'OFFICIAL_MANUFACTURER'
   | 'OFFICIAL_DOCUMENTATION'
-  | 'OFFICIAL_PRODUCT_PAGE'
   | 'AUTHORIZED_RETAILER'
+  | 'REPUTABLE_REVIEW'
+  | 'REPUTABLE_DATABASE'
+  | 'SPECIALIZED_PUBLICATION'
+  | 'GENERAL_PUBLICATION'
+  | 'MARKETPLACE'
+  | 'USER_GENERATED'
+  | 'OFFICIAL_PRODUCT_PAGE'
   | 'REPUTABLE_RETAILER'
   | 'REVIEW_SOURCE'
   | 'NEWS_SOURCE'
@@ -186,11 +206,13 @@ export type EvidenceSourceType =
   | 'SEARCH_RESULT'
   | 'UNKNOWN';
 
+export type ProductMatchLevel = 'EXACT' | 'HIGH' | 'PARTIAL' | 'MISMATCHED' | 'UNKNOWN';
+
 export interface EvidenceSource {
   id: string;
   url: string;
-  title?: string;
-  domain?: string;
+  title: string;
+  domain: string;
   publisher?: string;
   sourceType: EvidenceSourceType;
   authorityScore: number;   // 0-100
@@ -198,17 +220,34 @@ export interface EvidenceSource {
   freshnessScore: number;   // 0-100
   reliabilityScore: number; // 0-100
   overallScore: number;     // 0-100
+  productMatch: ProductMatchLevel;
   retrievedAt: string;
   supportingText?: string;
 }
 
 export type SupportLevel = 'DIRECT' | 'PARTIAL' | 'INDIRECT' | 'CONTRADICTORY';
 
+export type EvidenceType =
+  | 'DIRECT_SPECIFICATION'
+  | 'PRODUCT_PAGE'
+  | 'TECHNICAL_DOCUMENTATION'
+  | 'REVIEW_TEST'
+  | 'DATABASE_RECORD'
+  | 'OTHER';
+
+export type SupportStrength = 'STRONG' | 'MODERATE' | 'WEAK' | 'NONE';
+
 export interface EvidenceReference {
   sourceId: string;
+  factId?: string;
   factName: string;
-  supportLevel: SupportLevel;
-  confidence: number;      // 0-100
+  supportingText?: string;
+  evidenceType?: EvidenceType;
+  supportStrength?: SupportStrength;
+  productMatch?: ProductMatchLevel;
+  createdAt?: string;
+  supportLevel?: SupportLevel;
+  confidence?: number;      // 0-100
   reasoning?: string;
 }
 
@@ -257,17 +296,38 @@ export interface KnowledgeFact {
   reasonIfNotPermitted?: string;
 }
 
+export type ConflictType =
+  | 'DIRECT_CONTRADICTION'
+  | 'CONTEXTUAL_DIFFERENCE'
+  | 'VARIANT_DIFFERENCE'
+  | 'MEASUREMENT_DIFFERENCE'
+  | 'UNRESOLVED';
+
+export type ResolutionStatus = 'RESOLVED' | 'OPEN';
+
+export interface KnowledgeConflictValue {
+  value: string;
+  sourceId: string;
+  authorityScore: number;
+  relevanceScore: number;
+  sourceIds?: string[];
+}
+
 export interface KnowledgeConflict {
   id: string;
+  factName: string;
   field: string;
-  userValue: string;
-  researchedValue: string;
-  userProvenance: 'USER_PROVIDED';
-  researchedProvenance: 'RESEARCHED' | 'VERIFIED' | 'OBSERVED_FROM_IMAGE';
-  description: string;
-  status: 'OPEN_CONFLICT' | 'RESOLVED_BY_USER' | 'FLAGGED_FOR_REVIEW';
+  userValue?: string;
+  researchedValue?: string;
+  userProvenance?: 'USER_PROVIDED';
+  researchedProvenance?: 'RESEARCHED' | 'VERIFIED' | 'OBSERVED_FROM_IMAGE';
+  description?: string;
+  status?: 'OPEN_CONFLICT' | 'RESOLVED_BY_USER' | 'FLAGGED_FOR_REVIEW';
   resolutionNote?: string;
-  values?: Array<{ value: string; sourceIds: string[] }>;
+  values?: KnowledgeConflictValue[];
+  conflictType?: ConflictType;
+  resolutionStatus?: ResolutionStatus;
+  resolutionReason?: string;
 }
 
 export interface DynamicCategoryAttribute {
@@ -359,7 +419,7 @@ export type FactItem = NormalizedFact & { attributeName?: string; status?: FactV
 export type ResearchSource = FactSourceRef & { id?: string; snippet?: string; retrievedAt?: string };
 export type UniversalProductProfile = UniversalProductIntelligenceProfile;
 export type FactStatus = FactVerificationStatus | LegacyFactVerificationStatus;
-export type IntelligenceSourceType = CanonicalSourceType | 'AI_DETECTED' | 'AI_INFERRED' | 'RESEARCH_VERIFIED';
+export type IntelligenceSourceType = CanonicalSourceType | 'USER_PROVIDED' | 'OBSERVED' | 'AI_DETECTED' | 'AI_INFERRED' | 'RESEARCH_VERIFIED';
 export type IntelligenceConfidence = FactConfidence;
 
 export interface ProductIntelligenceFact {

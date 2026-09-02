@@ -281,6 +281,7 @@ export function createProductKnowledgeProfile(
       if (!exists) {
         conflicts.push({
           id: `conflict-${idx}-${timestamp}`,
+          factName: c.field,
           field: c.field,
           userValue: c.userValue,
           researchedValue: c.researchedValue,

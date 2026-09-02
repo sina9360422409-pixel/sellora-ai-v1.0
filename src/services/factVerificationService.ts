@@ -6,6 +6,10 @@ import {
   KnowledgeConflict,
   FactVerificationStatus,
   SupportLevel,
+  SupportStrength,
+  EvidenceType,
+  ConflictType,
+  ResolutionStatus,
   KnowledgeConfidence
 } from '../types';
 
@@ -33,7 +37,7 @@ export const factVerificationService = {
     const evidenceReferences: EvidenceReference[] = [];
     const conflicts: KnowledgeConflict[] = [];
 
-    // Rule: User-provided and image-observed facts retain their tier unless contradicted
+    // Rule: User-provided facts retain their tier unless contradicted
     if (fact.provenance === 'USER_PROVIDED') {
       return {
         updatedFact: {
@@ -77,69 +81,115 @@ export const factVerificationService = {
     }
 
     // Evaluate evidence sources against fact
-    const factNameLower = fact.name.toLowerCase();
-    const factValueLower = fact.value.toLowerCase();
+    const factNameLower = fact.name.toLowerCase().trim();
+    const factValueLower = fact.value.toLowerCase().trim();
 
-    const supportingSources: Array<{ source: EvidenceSource; level: SupportLevel; score: number }> = [];
-    const conflictingValuesMap = new Map<string, string[]>(); // value -> sourceIds[]
+    const supportingSources: Array<{ source: EvidenceSource; level: SupportLevel; strength: SupportStrength; score: number }> = [];
+    const conflictingValuesMap = new Map<string, Array<{ source: EvidenceSource; foundValue: string; conflictType: ConflictType }>>();
 
     evidenceSources.forEach((src) => {
+      // Rejection of Generated Content as Evidence:
+      // Never allow Sellora-generated copy, AI outputs, or synthetic text as factual evidence.
+      const rawText = `${src.title || ''} ${src.url || ''} ${src.publisher || ''} ${src.supportingText || ''}`.toLowerCase();
+      if (
+        rawText.includes('generated content') ||
+        rawText.includes('sellora ai') ||
+        rawText.includes('synthetic text')
+      ) {
+        return; // Ignore generated content as evidence
+      }
+
+      // Reject sources with mismatched product model
+      if (src.productMatch === 'MISMATCHED') {
+        return;
+      }
+
       const srcText = `${src.title || ''} ${src.supportingText || ''}`.toLowerCase();
       if (!srcText) return;
 
-      // Determine support level
+      // Determine support level and claim relevance
       let level: SupportLevel = 'INDIRECT';
+      let strength: SupportStrength = 'NONE';
       let score = src.overallScore;
 
-      const mentionsFactName = srcText.includes(factNameLower);
-      const mentionsFactValue = srcText.includes(factValueLower);
+      const mentionsFactName = srcText.includes(factNameLower) || containsKeyKeywords(srcText, factNameLower);
+      const mentionsFactValue = srcText.includes(factValueLower) || containsKeyKeywords(srcText, factValueLower);
 
       if (mentionsFactName && mentionsFactValue) {
         level = 'DIRECT';
+        strength = src.authorityScore >= 75 ? 'STRONG' : 'MODERATE';
         score += 20;
-      } else if (mentionsFactValue || mentionsFactName) {
+      } else if (mentionsFactValue) {
         level = 'PARTIAL';
+        strength = 'WEAK';
       }
 
-      // Check if source explicitly contradicts fact value
-      const isContradictory = checkValueContradiction(factNameLower, factValueLower, srcText);
-      if (isContradictory.hasContradiction) {
+      // Check if source explicitly contradicts fact value or has measurement differences
+      const contradictionCheck = checkValueContradiction(factNameLower, factValueLower, srcText);
+      if (contradictionCheck.hasContradiction) {
         level = 'CONTRADICTORY';
+        strength = 'NONE';
         score -= 20;
-        const list = conflictingValuesMap.get(isContradictory.foundValue) || [];
-        list.push(src.id);
-        conflictingValuesMap.set(isContradictory.foundValue, list);
+        const list = conflictingValuesMap.get(contradictionCheck.foundValue) || [];
+        list.push({ source: src, foundValue: contradictionCheck.foundValue, conflictType: contradictionCheck.conflictType });
+        conflictingValuesMap.set(contradictionCheck.foundValue, list);
       }
 
-      if (level !== 'INDIRECT') {
-        supportingSources.push({ source: src, level, score });
+      if (level !== 'INDIRECT' && level !== 'CONTRADICTORY') {
+        supportingSources.push({ source: src, level, strength, score });
+        
+        let evidenceType: EvidenceType = 'OTHER';
+        if (src.sourceType === 'OFFICIAL_DOCUMENTATION') evidenceType = 'TECHNICAL_DOCUMENTATION';
+        else if (src.sourceType === 'OFFICIAL_MANUFACTURER') evidenceType = 'DIRECT_SPECIFICATION';
+        else if (src.sourceType === 'AUTHORIZED_RETAILER') evidenceType = 'PRODUCT_PAGE';
+        else if (src.sourceType === 'REPUTABLE_REVIEW') evidenceType = 'REVIEW_TEST';
+        else if (src.sourceType === 'REPUTABLE_DATABASE') evidenceType = 'DATABASE_RECORD';
+
         evidenceReferences.push({
           sourceId: src.id,
           factName: fact.name,
+          supportingText: src.supportingText,
+          evidenceType,
+          supportStrength: strength,
+          productMatch: src.productMatch,
+          createdAt: new Date().toISOString(),
           supportLevel: level,
           confidence: Math.min(100, score),
-          reasoning: `Source ${src.publisher || src.domain} (${level}) for ${fact.name}`
+          reasoning: `Source ${src.publisher || src.domain} (${level}, ${strength}) for ${fact.name}`
         });
       }
     });
 
     // Handle Conflicts
     if (conflictingValuesMap.size > 0) {
-      const conflictValues = Array.from(conflictingValuesMap.entries()).map(([val, ids]) => ({
-        value: val,
-        sourceIds: ids
-      }));
+      const allConflictEntries: Array<{ value: string; sourceId: string; authorityScore: number; relevanceScore: number }> = [];
+      let primaryConflictType: ConflictType = 'DIRECT_CONTRADICTION';
+
+      conflictingValuesMap.forEach((items, foundVal) => {
+        items.forEach((item) => {
+          allConflictEntries.push({
+            value: foundVal,
+            sourceId: item.source.id,
+            authorityScore: item.source.authorityScore,
+            relevanceScore: item.source.relevanceScore
+          });
+          if (item.conflictType) primaryConflictType = item.conflictType;
+        });
+      });
 
       const newConflict: KnowledgeConflict = {
         id: `conflict-${fact.id}-${Date.now()}`,
+        factName: fact.name,
         field: fact.name,
         userValue: fact.value,
-        researchedValue: conflictValues[0]?.value || 'Conflicting research value',
+        researchedValue: allConflictEntries[0]?.value || 'Conflicting value',
         userProvenance: 'USER_PROVIDED',
         researchedProvenance: 'RESEARCHED',
-        description: `Contradictory values found across research sources for ${fact.name}`,
+        description: `Contradictory values or measurement differences found across research sources for ${fact.name}`,
         status: 'OPEN_CONFLICT',
-        values: conflictValues
+        conflictType: primaryConflictType,
+        resolutionStatus: 'OPEN',
+        values: allConflictEntries
       };
 
       conflicts.push(newConflict);
@@ -232,23 +282,37 @@ export const factVerificationService = {
   }
 };
 
+function containsKeyKeywords(text: string, phrase: string): boolean {
+  const words = phrase.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+  if (words.length === 0) return false;
+  const matches = words.filter((w) => text.includes(w));
+  return matches.length / words.length >= 0.7;
+}
+
 function checkValueContradiction(
   factName: string,
   factValue: string,
   sourceText: string
-): { hasContradiction: boolean; foundValue: string } {
+): { hasContradiction: boolean; foundValue: string; conflictType: ConflictType } {
   // Simple heuristic for numbers or specs e.g. "20 hours" vs "24 hours" or "8GB" vs "12GB"
   const numMatch = factValue.match(/(\d+)\s*([a-z]+)?/i);
   if (numMatch && sourceText.includes(factName)) {
     const valNum = numMatch[1];
     const unit = numMatch[2] || '';
-    const srcNumMatch = sourceText.match(new RegExp(`${factName}[^\\d]*(\\d+)\\s*${unit}`, 'i'));
+    const srcNumMatch = sourceText.match(new RegExp(`${escapeRegExp(factName)}[^\\d]*(\\d+)\\s*${unit}`, 'i'));
     if (srcNumMatch && srcNumMatch[1] !== valNum) {
+      // Check if source uses testing/measurement language
+      const isMeasurement = /tested|testing|in our tests|real-world|measured/i.test(sourceText);
       return {
         hasContradiction: true,
-        foundValue: `${srcNumMatch[1]} ${unit}`.trim()
+        foundValue: `${srcNumMatch[1]} ${unit}`.trim(),
+        conflictType: isMeasurement ? 'MEASUREMENT_DIFFERENCE' : 'DIRECT_CONTRADICTION'
       };
     }
   }
-  return { hasContradiction: false, foundValue: '' };
+  return { hasContradiction: false, foundValue: '', conflictType: 'UNRESOLVED' };
+}
+
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

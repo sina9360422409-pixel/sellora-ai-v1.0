@@ -1,4 +1,4 @@
-import { EvidenceSource, EvidenceSourceType } from '../types';
+import { EvidenceSource, EvidenceSourceType, ProductMatchLevel } from '../types';
 
 export interface SourceEvaluationInput {
   id?: string;
@@ -42,6 +42,38 @@ const SPAM_PATTERNS = [
 ];
 
 /**
+ * Validates whether a given URL is a valid, secure HTTP/HTTPS external web source.
+ * Rejects javascript:, data:, file:, local references, malformed URLs, and empty domains.
+ */
+export function isValidEvidenceUrl(url: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim().toLowerCase();
+  if (
+    trimmed.startsWith('javascript:') ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('file:') ||
+    trimmed.startsWith('blob:')
+  ) {
+    return false;
+  }
+
+  try {
+    const fullUrl = trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`;
+    const parsed = new URL(fullUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+    const hostname = parsed.hostname;
+    if (!hostname || hostname === 'localhost' || hostname === '127.0.0.1' || !hostname.includes('.')) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Extracts normalized domain name from a URL string
  */
 export function extractDomain(url: string): string {
@@ -55,29 +87,84 @@ export function extractDomain(url: string): string {
   }
 }
 
+/**
+ * Strictly verifies whether a domain is an authentic brand domain.
+ * Avoids substring false positives like "fake-samsung-example.com" or "samsung-cheap-deals.xyz".
+ */
+export function isAuthenticBrandDomain(domain: string, brand: string): boolean {
+  if (!domain || !brand) return false;
+  const cleanDomain = domain.toLowerCase().replace(/^www\./, '');
+  const cleanBrand = brand.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  if (!cleanBrand || cleanBrand.length < 2 || cleanBrand === 'generic') {
+    return false;
+  }
+
+  // Split domain into labels e.g. "support.samsung.com" -> ["support", "samsung", "com"]
+  const parts = cleanDomain.split('.');
+  if (parts.length < 2) return false;
+
+  // The Second Level Domain (SLD) is the label right before the TLD (e.g. "samsung" in "samsung.com" or "samsung.co.uk")
+  // Handle multi-part TLDs like .co.uk, .com.au
+  const sldIndex = (parts.length >= 3 && ['co', 'com', 'net', 'org', 'gov'].includes(parts[parts.length - 2]))
+    ? parts.length - 3
+    : parts.length - 2;
+
+  if (sldIndex < 0) return false;
+  const sld = parts[sldIndex];
+
+  // Exact match on SLD, e.g. sld === "samsung" or sld === "sony" or sld === "apple"
+  return sld === cleanBrand;
+}
+
 export const sourceQualityService = {
+  isValidEvidenceUrl,
+  extractDomain,
+
   /**
    * Evaluates a raw web source or grounding item and computes structured quality scores & evidence type.
    */
   evaluateSourceQuality(input: SourceEvaluationInput): EvidenceSource {
-    const url = input.url || '';
-    const domain = input.domain || extractDomain(url);
+    const rawUrl = input.url || '';
+    const isValidUrl = isValidEvidenceUrl(rawUrl);
+
+    const domain = input.domain || extractDomain(rawUrl);
     const title = input.title || '';
     const publisher = input.publisher || domain;
     const retrievedAt = input.retrievedAt || new Date().toISOString();
     const supportingText = input.supportingText || '';
-    const id = input.id || `src-${Math.abs(hashString(url || title || Math.random().toString()))}`;
+    const id = input.id || `src-${Math.abs(hashString(rawUrl || title || Math.random().toString()))}`;
 
-    const brand = input.productContext?.brand?.toLowerCase().trim() || '';
-    const model = input.productContext?.model?.toLowerCase().trim() || '';
-    const productName = input.productContext?.productName?.toLowerCase().trim() || '';
+    const brand = input.productContext?.brand?.trim() || '';
+    const model = input.productContext?.model?.trim() || '';
+    const productName = input.productContext?.productName?.trim() || '';
+
+    // If URL is invalid, malformed, or unsafe scheme (javascript:, data:, file:), reject/downgrade immediately
+    if (!isValidUrl && rawUrl) {
+      return {
+        id,
+        url: rawUrl,
+        title: title || 'Malformed / Unsafe Source URL',
+        domain: domain || 'invalid-domain',
+        publisher,
+        sourceType: 'UNKNOWN',
+        authorityScore: 0,
+        relevanceScore: 0,
+        freshnessScore: 0,
+        reliabilityScore: 0,
+        overallScore: 0,
+        productMatch: 'MISMATCHED',
+        retrievedAt,
+        supportingText: 'Rejected: Malformed or unsupported URL scheme'
+      };
+    }
 
     // 1. Detect Spam / Unsuitable Sources
-    const isSpam = SPAM_PATTERNS.some((pattern) => pattern.test(url) || pattern.test(title) || pattern.test(domain));
+    const isSpam = SPAM_PATTERNS.some((pattern) => pattern.test(rawUrl) || pattern.test(title) || pattern.test(domain));
     if (isSpam) {
       return {
         id,
-        url,
+        url: rawUrl,
         title,
         domain,
         publisher,
@@ -87,42 +174,43 @@ export const sourceQualityService = {
         freshnessScore: 50,
         reliabilityScore: 5,
         overallScore: 10,
+        productMatch: 'UNKNOWN',
         retrievedAt,
         supportingText
       };
     }
 
-    // 2. Classify Source Type & Compute Authority Score
+    // 2. Classify Source Type & Compute Authority Score using strict domain matching
     let sourceType: EvidenceSourceType = 'SEARCH_RESULT';
-    let authorityScore = 50;
+    let authorityScore = 55;
 
     const domainLower = domain.toLowerCase();
-    const urlLower = url.toLowerCase();
+    const urlLower = rawUrl.toLowerCase();
     const titleLower = title.toLowerCase();
 
-    // Check if domain matches brand name or official brand subdomains
-    const isBrandDomain = Boolean(brand && brand !== 'generic' && brand.length > 2 && domainLower.includes(brand.replace(/\s+/g, '')));
+    // Strict brand domain check (must match actual SLD, e.g. samsung.com, not fake-samsung-example.com)
+    const isBrandDomain = isAuthenticBrandDomain(domainLower, brand);
     const hasOfficialPath = OFFICIAL_PATTERNS.some((p) => p.test(urlLower) || p.test(titleLower));
 
     if (isBrandDomain && hasOfficialPath) {
       sourceType = 'OFFICIAL_DOCUMENTATION';
       authorityScore = 98;
     } else if (isBrandDomain) {
-      sourceType = 'OFFICIAL_PRODUCT_PAGE';
+      sourceType = 'OFFICIAL_MANUFACTURER';
       authorityScore = 95;
     } else if (hasOfficialPath && (domainLower.includes('support') || domainLower.includes('docs'))) {
       sourceType = 'OFFICIAL_DOCUMENTATION';
       authorityScore = 92;
-    } else if (REPUTABLE_RETAILERS.some((r) => domainLower.includes(r))) {
+    } else if (REPUTABLE_RETAILERS.some((r) => domainLower === r || domainLower.endsWith('.' + r))) {
       sourceType = 'AUTHORIZED_RETAILER';
       authorityScore = 80;
-    } else if (REPUTABLE_REVIEW_SOURCES.some((r) => domainLower.includes(r))) {
+    } else if (REPUTABLE_REVIEW_SOURCES.some((r) => domainLower === r || domainLower.endsWith('.' + r))) {
       sourceType = 'REVIEW_SOURCE';
       authorityScore = 78;
-    } else if (COMMUNITY_SOURCES.some((c) => domainLower.includes(c) || urlLower.includes(c))) {
+    } else if (COMMUNITY_SOURCES.some((c) => domainLower === c || domainLower.endsWith('.' + c))) {
       sourceType = 'COMMUNITY_SOURCE';
       authorityScore = 35;
-    } else if (publisher && publisher.toLowerCase().includes('official')) {
+    } else if (publisher && publisher.toLowerCase().includes('official') && isBrandDomain) {
       sourceType = 'OFFICIAL_MANUFACTURER';
       authorityScore = 90;
     } else {
@@ -130,40 +218,63 @@ export const sourceQualityService = {
       authorityScore = 55;
     }
 
-    // 3. Compute Relevance Score (0-100)
-    let relevanceScore = 50;
+    // 3. Compute Product Match Level
+    let productMatch: ProductMatchLevel = 'UNKNOWN';
     const combinedContent = `${titleLower} ${urlLower} ${supportingText.toLowerCase()}`;
 
-    if (model && model !== 'unknown' && model !== 'not verified' && combinedContent.includes(model)) {
-      relevanceScore += 35;
-    }
-    if (brand && brand !== 'generic' && combinedContent.includes(brand)) {
-      relevanceScore += 15;
-    }
-    if (productName && combinedContent.includes(productName.slice(0, 15))) {
-      relevanceScore += 15;
-    }
-    relevanceScore = Math.min(100, Math.max(20, relevanceScore));
+    const cleanModel = model.toLowerCase().trim();
+    const hasModel = cleanModel && cleanModel !== 'unknown' && cleanModel !== 'not verified' && cleanModel.length >= 2;
 
-    // 4. Compute Freshness Score (0-100)
+    if (hasModel) {
+      if (combinedContent.includes(cleanModel)) {
+        productMatch = 'EXACT';
+      } else {
+        // Check model mismatch
+        const modelDigitMatch = cleanModel.match(/^([a-z0-9\s\-]+?)([0-9]+)$/i);
+        if (modelDigitMatch) {
+          const prefix = modelDigitMatch[1];
+          const num = modelDigitMatch[2];
+          const regex = new RegExp(`${escapeRegExp(prefix)}([0-9]+)`, 'i');
+          const match = combinedContent.match(regex);
+          if (match && match[1] !== num) {
+            productMatch = 'MISMATCHED';
+          }
+        }
+      }
+    }
+
+    if (productMatch === 'UNKNOWN') {
+      const cleanBrand = brand.toLowerCase().trim();
+      const cleanName = productName.toLowerCase().trim();
+      if (cleanBrand && cleanBrand !== 'generic' && combinedContent.includes(cleanBrand)) {
+        productMatch = 'HIGH';
+      } else if (cleanName && combinedContent.includes(cleanName.slice(0, 10))) {
+        productMatch = 'PARTIAL';
+      }
+    }
+
+    // 4. Compute Relevance Score (0-100)
+    let relevanceScore = 50;
+    if (productMatch === 'EXACT') relevanceScore = 95;
+    else if (productMatch === 'HIGH') relevanceScore = 80;
+    else if (productMatch === 'PARTIAL') relevanceScore = 60;
+    else if (productMatch === 'MISMATCHED') relevanceScore = 15;
+
+    // 5. Compute Freshness Score
     let freshnessScore = 90;
     if (retrievedAt) {
       const retrievedDate = new Date(retrievedAt).getTime();
       const ageInDays = (Date.now() - retrievedDate) / (1000 * 60 * 60 * 24);
-      if (ageInDays > 365) {
-        freshnessScore = 60;
-      } else if (ageInDays > 90) {
-        freshnessScore = 75;
-      }
+      if (ageInDays > 365) freshnessScore = 60;
+      else if (ageInDays > 90) freshnessScore = 75;
     }
 
-    // 5. Compute Reliability Score
+    // 6. Compute Reliability Score
     let reliabilityScore = authorityScore;
-    if (sourceType === 'COMMUNITY_SOURCE') {
-      reliabilityScore = Math.min(45, reliabilityScore);
-    }
+    if (productMatch === 'MISMATCHED') reliabilityScore = Math.min(20, reliabilityScore);
+    if (sourceType === 'COMMUNITY_SOURCE') reliabilityScore = Math.min(45, reliabilityScore);
 
-    // 6. Overall Weighted Score
+    // 7. Overall Weighted Score
     const overallScore = Math.round(
       authorityScore * 0.4 +
       relevanceScore * 0.3 +
@@ -173,9 +284,9 @@ export const sourceQualityService = {
 
     return {
       id,
-      url,
-      title,
-      domain,
+      url: rawUrl,
+      title: title || domain || 'Web Research Source',
+      domain: domain || 'web-source',
       publisher,
       sourceType,
       authorityScore,
@@ -183,6 +294,7 @@ export const sourceQualityService = {
       freshnessScore,
       reliabilityScore,
       overallScore,
+      productMatch,
       retrievedAt,
       supportingText
     };
@@ -197,4 +309,8 @@ function hashString(str: string): number {
     hash |= 0;
   }
   return Math.abs(hash);
+}
+
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

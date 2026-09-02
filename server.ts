@@ -3,6 +3,11 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
+import { sourceQualityService } from './src/services/sourceQualityService';
+import { productIdentityService } from './src/services/productIdentityService';
+import { factVerificationService } from './src/services/factVerificationService';
+import { knowledgeQualityGate } from './src/services/knowledgeQualityGate';
+import { researchCacheService } from './src/services/researchCacheService';
 
 dotenv.config();
 
@@ -354,40 +359,25 @@ const productIntelligenceResponseSchema = {
 };
 
 function sanitizeProductIntelligenceResponse(raw: any, product: any, groundingChunks?: any[]) {
-  // 1. Parse and extract real grounding web search sources
+  // 1. Parse and extract real grounding web search sources using deterministic Source Quality Engine
   const sources: any[] = [];
   if (Array.isArray(groundingChunks) && groundingChunks.length > 0) {
     groundingChunks.forEach((chunk, idx) => {
-      if (chunk?.web?.uri) {
-        try {
-          const urlObj = new URL(chunk.web.uri);
-          sources.push({
-            id: `src-${idx + 1}`,
-            title: chunk.web.title || urlObj.hostname,
-            url: chunk.web.uri,
-            publisher: urlObj.hostname.replace(/^www\./, ''),
-            domain: urlObj.hostname,
-            reliabilityScore:
-              urlObj.hostname.includes('official') ||
-              urlObj.hostname.includes('apple') ||
-              urlObj.hostname.includes('samsung') ||
-              urlObj.hostname.includes('sony') ||
-              urlObj.hostname.includes('nike') ||
-              urlObj.hostname.includes('beatsbydre')
-                ? 95
-                : 85,
-            retrievedAt: new Date().toISOString()
-          });
-        } catch {
-          sources.push({
-            id: `src-${idx + 1}`,
-            title: chunk.web.title || 'Authoritative Web Source',
-            url: chunk.web.uri,
-            publisher: 'Web Grounding',
-            domain: 'web',
-            reliabilityScore: 80,
-            retrievedAt: new Date().toISOString()
-          });
+      const uri = chunk?.web?.uri || '';
+      if (uri) {
+        const evaluatedSource = sourceQualityService.evaluateSourceQuality({
+          id: `src-${idx + 1}`,
+          url: uri,
+          title: chunk.web?.title,
+          productContext: {
+            brand: product.brand || raw?.productIdentity?.brand?.value,
+            model: raw?.productIdentity?.model?.value,
+            productName: product.name
+          }
+        });
+        // Only keep sources that pass URL validation and aren't rejected as malformed
+        if (evaluatedSource.authorityScore > 0 && evaluatedSource.productMatch !== 'MISMATCHED') {
+          sources.push(evaluatedSource);
         }
       }
     });
