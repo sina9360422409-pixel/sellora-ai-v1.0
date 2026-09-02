@@ -9,9 +9,15 @@ import {
   KnowledgeConfidence,
   DynamicCategoryAttribute,
   QualityGateResult,
-  NormalizedFact
+  NormalizedFact,
+  EvidenceSource,
+  EvidenceReference,
+  NormalizedProductIdentity
 } from '../types';
 import { knowledgeQualityGate } from './knowledgeQualityGate';
+import { sourceQualityService } from './sourceQualityService';
+import { productIdentityService } from './productIdentityService';
+import { factVerificationService } from './factVerificationService';
 
 // In-memory cache for Product Knowledge Profiles
 const knowledgeCache = new Map<string, { profile: ProductKnowledgeProfile; timestamp: number }>();
@@ -177,27 +183,58 @@ export function createProductKnowledgeProfile(
     });
   }
 
+  // Evaluate Evidence Sources Quality & Normalized Identity
+  const structuredEvidenceSources: EvidenceSource[] = [];
+  const rawSources = universalIntel?.sources || intelligence?.sources || [];
+  rawSources.forEach((src) => {
+    const evaluated = sourceQualityService.evaluateSourceQuality({
+      url: src.url,
+      title: src.title,
+      domain: src.domain,
+      publisher: src.publisher,
+      retrievedAt: now,
+      productContext: {
+        brand: brandValue,
+        model: modelValue,
+        productName: product.name
+      }
+    });
+    structuredEvidenceSources.push(evaluated);
+  });
+
+  const legacyEvidenceSources: KnowledgeSourceEvidence[] = structuredEvidenceSources.map((s) => ({
+    sourceUrl: s.url,
+    sourceTitle: s.title,
+    publisher: s.publisher || s.domain,
+    retrievedAt: s.retrievedAt,
+    confidence: s.authorityScore >= 75 ? 'HIGH' : s.authorityScore >= 50 ? 'MEDIUM' : 'LOW',
+    sourceType: s.sourceType,
+    relationshipToProduct: 'EXACT_MATCH',
+    sourceId: s.id,
+    authorityScore: s.authorityScore
+  }));
+
+  const normalizedIdentity = productIdentityService.evaluateProductIdentity(
+    {
+      name: product.name,
+      brand: brandValue,
+      model: modelValue,
+      category: product.category,
+      description: product.description,
+      features: product.features
+    },
+    structuredEvidenceSources
+  );
+
   // Verified & Researched Facts
   const verifiedFacts: KnowledgeFact[] = [];
   const researchedFacts: KnowledgeFact[] = [];
-  const evidenceSources: KnowledgeSourceEvidence[] = [];
-
-  const rawSources = universalIntel?.sources || intelligence?.sources || [];
-  rawSources.forEach((src) => {
-    evidenceSources.push({
-      sourceUrl: src.url,
-      sourceTitle: src.title,
-      publisher: src.publisher || src.domain,
-      retrievedAt: now,
-      confidence: src.reliabilityScore && src.reliabilityScore > 80 ? 'HIGH' : 'MEDIUM',
-      sourceType: 'SEARCH_GROUNDED',
-      relationshipToProduct: 'EXACT_MATCH'
-    });
-  });
+  const allEvidenceReferences: EvidenceReference[] = [];
+  const conflicts: KnowledgeConflict[] = [];
 
   if (universalIntel?.verifiedFacts && Array.isArray(universalIntel.verifiedFacts)) {
     universalIntel.verifiedFacts.forEach((vf: NormalizedFact, idx: number) => {
-      const kFact: KnowledgeFact = {
+      const initialFact: KnowledgeFact = {
         id: `fact-ver-${idx}-${timestamp}`,
         name: vf.name,
         value: vf.value,
@@ -205,19 +242,19 @@ export function createProductKnowledgeProfile(
         provenance: 'VERIFIED',
         confidence: (vf.confidence as KnowledgeConfidence) || 'HIGH',
         status: 'VERIFIED',
-        isPermittedForGeneration: true,
-        evidence: vf.source ? {
-          sourceUrl: vf.source.url,
-          sourceTitle: vf.source.title,
-          publisher: vf.source.publisher,
-          retrievedAt: now,
-          confidence: 'HIGH',
-          sourceType: 'OFFICIAL_MANUFACTURER',
-          extractedFact: vf.evidence || `${vf.name}: ${vf.value}`
-        } : undefined
+        isPermittedForGeneration: true
       };
-      verifiedFacts.push(kFact);
-      researchedFacts.push(kFact);
+
+      const evalRes = factVerificationService.evaluateFactEvidence(
+        initialFact,
+        structuredEvidenceSources,
+        normalizedIdentity
+      );
+
+      verifiedFacts.push(evalRes.updatedFact);
+      researchedFacts.push(evalRes.updatedFact);
+      allEvidenceReferences.push(...evalRes.evidenceReferences);
+      conflicts.push(...evalRes.conflicts);
     });
   }
 
@@ -237,20 +274,22 @@ export function createProductKnowledgeProfile(
     });
   });
 
-  // Conflicts Ledger
-  const conflicts: KnowledgeConflict[] = [];
+  // Additional Conflicts from Universal Intelligence
   if (universalIntel?.conflicts && Array.isArray(universalIntel.conflicts)) {
     universalIntel.conflicts.forEach((c, idx) => {
-      conflicts.push({
-        id: `conflict-${idx}-${timestamp}`,
-        field: c.field,
-        userValue: c.userValue,
-        researchedValue: c.researchedValue,
-        userProvenance: 'USER_PROVIDED',
-        researchedProvenance: 'VERIFIED',
-        description: c.description,
-        status: 'OPEN_CONFLICT'
-      });
+      const exists = conflicts.some((existing) => existing.field.toLowerCase() === c.field.toLowerCase());
+      if (!exists) {
+        conflicts.push({
+          id: `conflict-${idx}-${timestamp}`,
+          field: c.field,
+          userValue: c.userValue,
+          researchedValue: c.researchedValue,
+          userProvenance: 'USER_PROVIDED',
+          researchedProvenance: 'VERIFIED',
+          description: c.description,
+          status: 'OPEN_CONFLICT'
+        });
+      }
     });
   }
 
@@ -294,7 +333,8 @@ export function createProductKnowledgeProfile(
       model: modelFact,
       category: categoryFact,
       subcategory: subcategoryFact,
-      productType: productTypeFact
+      productType: productTypeFact,
+      normalizedIdentity
     },
     attributes,
     categoryAttributes,
@@ -306,9 +346,12 @@ export function createProductKnowledgeProfile(
     unknownFacts,
     potentialAssumptions: [],
     conflicts,
-    evidenceSources,
-    overallConfidenceScore: universalIntel?.overallScore || intelligence?.verificationScore || 85,
-    qualityGatePassed: conflicts.length === 0,
+    evidenceSources: structuredEvidenceSources,
+    evidenceReferences: allEvidenceReferences,
+    verificationConfidence: normalizedIdentity.identityConfidence,
+    researchTimestamp: now,
+    overallConfidenceScore: universalIntel?.overallScore || intelligence?.verificationScore || normalizedIdentity.identityConfidence || 85,
+    qualityGatePassed: conflicts.length === 0 && normalizedIdentity.identityStatus !== 'UNCONFIRMED',
     warnings: universalIntel?.researchWarnings || [],
     summaryNotes: universalIntel?.summaryNotes || intelligence?.summaryNotes || 'Product Knowledge Profile initialized.'
   };

@@ -72,10 +72,31 @@ export const knowledgeQualityGate = {
         blockReason = 'AI inferred assumption blocked from factual generation';
       }
 
+      // Rule 1b: Unconfirmed product identity downgrades researched facts
+      else if (
+        (fact.provenance === 'RESEARCHED' || fact.provenance === 'VERIFIED') &&
+        profile.identity?.normalizedIdentity?.identityStatus === 'UNCONFIRMED' &&
+        !fact.evidence?.sourceUrl
+      ) {
+        permitted = false;
+        blockReason = 'Product identity unconfirmed against external evidence sources';
+      }
+
       // Rule 2: Low confidence facts without authoritative evidence are blocked
       else if (fact.confidence === 'LOW' && !fact.evidence?.sourceUrl) {
         permitted = false;
         blockReason = 'Low confidence fact without verified source evidence';
+      }
+
+      // Rule 2b: Fact with weak evidence authority score (< 30) is blocked unless user provided
+      else if (
+        fact.provenance !== 'USER_PROVIDED' &&
+        fact.provenance !== 'OBSERVED_FROM_IMAGE' &&
+        fact.evidence?.authorityScore !== undefined &&
+        fact.evidence.authorityScore < 30
+      ) {
+        permitted = false;
+        blockReason = 'Evidence source authority score too low for verified status';
       }
 
       // Rule 3: Conflicting facts cannot make definitive single claims

@@ -170,16 +170,75 @@ export type KnowledgeProvenance =
 
 export type KnowledgeConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 
+// ==================================================
+// PHASE 3 — EVIDENCE & SOURCE INTELLIGENCE MODEL
+// ==================================================
+
+export type EvidenceSourceType =
+  | 'OFFICIAL_MANUFACTURER'
+  | 'OFFICIAL_DOCUMENTATION'
+  | 'OFFICIAL_PRODUCT_PAGE'
+  | 'AUTHORIZED_RETAILER'
+  | 'REPUTABLE_RETAILER'
+  | 'REVIEW_SOURCE'
+  | 'NEWS_SOURCE'
+  | 'COMMUNITY_SOURCE'
+  | 'SEARCH_RESULT'
+  | 'UNKNOWN';
+
+export interface EvidenceSource {
+  id: string;
+  url: string;
+  title?: string;
+  domain?: string;
+  publisher?: string;
+  sourceType: EvidenceSourceType;
+  authorityScore: number;   // 0-100
+  relevanceScore: number;   // 0-100
+  freshnessScore: number;   // 0-100
+  reliabilityScore: number; // 0-100
+  overallScore: number;     // 0-100
+  retrievedAt: string;
+  supportingText?: string;
+}
+
+export type SupportLevel = 'DIRECT' | 'PARTIAL' | 'INDIRECT' | 'CONTRADICTORY';
+
+export interface EvidenceReference {
+  sourceId: string;
+  factName: string;
+  supportLevel: SupportLevel;
+  confidence: number;      // 0-100
+  reasoning?: string;
+}
+
+export type ProductIdentityStatus = 'CONFIRMED' | 'LIKELY' | 'AMBIGUOUS' | 'UNCONFIRMED';
+
+export interface NormalizedProductIdentity {
+  brand?: string;
+  model?: string;
+  productName?: string;
+  category?: string;
+  identityConfidence: number; // 0-100
+  matchedSources: string[];
+  identityStatus: ProductIdentityStatus;
+  reasoning?: string;
+}
+
+export type FactVerificationStatus = 'UNVERIFIED' | 'PARTIALLY_VERIFIED' | 'VERIFIED' | 'CONTRADICTED';
+
 export interface KnowledgeSourceEvidence {
   sourceUrl?: string;
   sourceTitle?: string;
-  sourceType?: 'OFFICIAL_MANUFACTURER' | 'OFFICIAL_DOCS' | 'RETAILER_DOCS' | 'SEARCH_GROUNDED' | 'USER_INPUT' | 'IMAGE_ANALYSIS';
+  sourceType?: 'OFFICIAL_MANUFACTURER' | 'OFFICIAL_DOCS' | 'RETAILER_DOCS' | 'SEARCH_GROUNDED' | 'USER_INPUT' | 'IMAGE_ANALYSIS' | EvidenceSourceType;
   extractedFact?: string;
   publicationDate?: string;
   retrievedAt: string;
   confidence: KnowledgeConfidence;
   relationshipToProduct?: 'EXACT_MATCH' | 'HIGHLY_SIMILAR' | 'GENERIC_CATEGORY' | 'UNCERTAIN';
   publisher?: string;
+  sourceId?: string;
+  authorityScore?: number;
 }
 
 export interface KnowledgeFact {
@@ -190,6 +249,9 @@ export interface KnowledgeFact {
   provenance: KnowledgeProvenance;
   confidence: KnowledgeConfidence;
   evidence?: KnowledgeSourceEvidence;
+  evidenceReferences?: EvidenceReference[];
+  verificationStatus?: FactVerificationStatus;
+  lastVerifiedAt?: string;
   status: 'VERIFIED' | 'OBSERVED' | 'USER_PROVIDED' | 'INFERRED' | 'UNKNOWN' | 'CONFLICTING';
   isPermittedForGeneration: boolean;
   reasonIfNotPermitted?: string;
@@ -205,6 +267,7 @@ export interface KnowledgeConflict {
   description: string;
   status: 'OPEN_CONFLICT' | 'RESOLVED_BY_USER' | 'FLAGGED_FOR_REVIEW';
   resolutionNote?: string;
+  values?: Array<{ value: string; sourceIds: string[] }>;
 }
 
 export interface DynamicCategoryAttribute {
@@ -230,6 +293,7 @@ export interface ProductKnowledgeProfile {
     category: KnowledgeFact;
     subcategory: KnowledgeFact;
     productType: KnowledgeFact;
+    normalizedIdentity?: NormalizedProductIdentity;
   };
 
   // Category-Agnostic Core Characteristics
@@ -266,7 +330,10 @@ export interface ProductKnowledgeProfile {
   conflicts: KnowledgeConflict[];
 
   // Evidence & Grounding Sources
-  evidenceSources: KnowledgeSourceEvidence[];
+  evidenceSources: EvidenceSource[];
+  evidenceReferences?: EvidenceReference[];
+  verificationConfidence?: number;
+  researchTimestamp?: string;
 
   // Overall Quality & Audit Metadata
   overallConfidenceScore: number;
@@ -287,11 +354,11 @@ export interface QualityGateResult {
 
 // Backward-compatible aliases
 export type FactSourceCategory = CanonicalSourceType;
-export type FactVerificationStatus = 'VERIFIED' | 'POTENTIAL' | 'UNSUPPORTED' | 'UNKNOWN' | 'CONFLICTING';
-export type FactItem = NormalizedFact & { attributeName?: string; status?: FactVerificationStatus };
+export type LegacyFactVerificationStatus = 'VERIFIED' | 'POTENTIAL' | 'UNSUPPORTED' | 'UNKNOWN' | 'CONFLICTING';
+export type FactItem = NormalizedFact & { attributeName?: string; status?: FactVerificationStatus | LegacyFactVerificationStatus };
 export type ResearchSource = FactSourceRef & { id?: string; snippet?: string; retrievedAt?: string };
 export type UniversalProductProfile = UniversalProductIntelligenceProfile;
-export type FactStatus = FactVerificationStatus;
+export type FactStatus = FactVerificationStatus | LegacyFactVerificationStatus;
 export type IntelligenceSourceType = CanonicalSourceType | 'AI_DETECTED' | 'AI_INFERRED' | 'RESEARCH_VERIFIED';
 export type IntelligenceConfidence = FactConfidence;
 
