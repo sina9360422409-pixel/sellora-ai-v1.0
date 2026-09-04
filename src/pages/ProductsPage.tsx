@@ -53,7 +53,7 @@ export function ProductsPage({
     return matchesSearch && matchesCategory && matchesStatus;
   });
 
-  const statusBadge = (status: ProductStatus) => {
+  const statusBadge = (status?: string) => {
     switch (status) {
       case 'Published':
         return (

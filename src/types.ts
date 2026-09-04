@@ -532,6 +532,7 @@ export interface PermittedFact {
     | 'VERIFIED'
     | 'UNVERIFIED'
     | 'CONFLICTED'
+    | 'CONTRADICTED'
     | 'REJECTED'
     | 'PARTIALLY_VERIFIED';
   confidence: number;
